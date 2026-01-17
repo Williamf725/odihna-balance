@@ -1,4 +1,5 @@
-import { GoogleGenerativeAI, FunctionDeclaration } from "@google/generative-ai";
+import { GoogleGenerativeAI, FunctionDeclaration, SchemaType } from "@google/generative-ai";
+
 import { Property, Reservation, Platform, AppAction } from "../types";
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
