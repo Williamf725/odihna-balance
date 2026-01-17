@@ -4,7 +4,6 @@ import { Property, Reservation, Platform, AppAction } from "../types";
 const apiKey = 'AIzaSyDV33xUUeJgg_t57690lGoHTTwVDgzzBTo';
 const genAI = new GoogleGenerativeAI(apiKey);
 
-
 // Helper for generating safe IDs inside the service
 const safeId = () => {
      try {
@@ -148,7 +147,7 @@ export const sendChatMessage = async (
     `;
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-pro',
+      model: 'gemini-3-pro-preview',
       tools: [{ 
         functionDeclarations: [
           addPropertyTool, 
@@ -259,7 +258,7 @@ export const parseVoiceCommand = async (
     `;
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-pro',
+      model: 'gemini-3-flash-preview',
       generationConfig: {
         responseMimeType: "application/json"
       }
