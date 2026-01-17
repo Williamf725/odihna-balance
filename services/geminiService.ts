@@ -1,8 +1,5 @@
-import { GoogleGenerativeAI, FunctionDeclaration, SchemaType } from "@google/generative-ai";
+import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import { Property, Reservation, Platform, AppAction } from "../types";
-
-const apiKey = 'AIzaSyDV33xUUeJgg_t57690lGoHTTwVDgzzBTo';
-const genAI = new GoogleGenerativeAI(apiKey);
 
 // Helper for generating safe IDs inside the service
 const safeId = () => {
@@ -20,12 +17,12 @@ const addPropertyTool: FunctionDeclaration = {
   name: 'addProperty',
   description: 'Add a new property to the database.',
   parameters: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      name: { type: SchemaType.STRING, description: 'Name of the property/accommodation' },
-      ownerName: { type: SchemaType.STRING, description: 'Full name of the owner' },
-      city: { type: SchemaType.STRING, description: 'City location' },
-      commissionRate: { type: SchemaType.NUMBER, description: 'Commission percentage (e.g., 15 or 20)' }
+      name: { type: Type.STRING, description: 'Name of the property/accommodation' },
+      ownerName: { type: Type.STRING, description: 'Full name of the owner' },
+      city: { type: Type.STRING, description: 'City location' },
+      commissionRate: { type: Type.NUMBER, description: 'Commission percentage (e.g., 15 or 20)' }
     },
     required: ['name', 'ownerName', 'commissionRate']
   }
@@ -35,12 +32,12 @@ const updatePropertyTool: FunctionDeclaration = {
   name: 'updateProperty',
   description: 'Update an existing property details, especially commission rate.',
   parameters: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      id: { type: SchemaType.STRING, description: 'The exact ID of the property to update' },
-      commissionRate: { type: SchemaType.NUMBER, description: 'The new commission percentage' },
-      name: { type: SchemaType.STRING },
-      ownerName: { type: SchemaType.STRING }
+      id: { type: Type.STRING, description: 'The exact ID of the property to update' },
+      commissionRate: { type: Type.NUMBER, description: 'The new commission percentage' },
+      name: { type: Type.STRING },
+      ownerName: { type: Type.STRING }
     },
     required: ['id']
   }
@@ -50,9 +47,9 @@ const deletePropertyTool: FunctionDeclaration = {
   name: 'deleteProperty',
   description: 'Delete a property from the database using its ID.',
   parameters: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      id: { type: SchemaType.STRING, description: 'The exact ID of the property to delete' }
+      id: { type: Type.STRING, description: 'The exact ID of the property to delete' }
     },
     required: ['id']
   }
@@ -62,15 +59,15 @@ const addReservationTool: FunctionDeclaration = {
   name: 'addReservation',
   description: 'Add a new reservation. If it is Airbnb, use usdAmount.',
   parameters: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      propertyId: { type: SchemaType.STRING, description: 'The ID of the property for this reservation' },
-      guestName: { type: SchemaType.STRING, description: 'Name of the guest' },
-      checkInDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
-      checkOutDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
-      totalAmount: { type: SchemaType.NUMBER, description: 'Total amount in COP (for non-Airbnb)' },
-      usdAmount: { type: SchemaType.NUMBER, description: 'Amount in USD (only for Airbnb)' },
-      platform: { type: SchemaType.STRING, description: 'Airbnb, Booking, Directo, etc.' }
+      propertyId: { type: Type.STRING, description: 'The ID of the property for this reservation' },
+      guestName: { type: Type.STRING, description: 'Name of the guest' },
+      checkInDate: { type: Type.STRING, description: 'YYYY-MM-DD format' },
+      checkOutDate: { type: Type.STRING, description: 'YYYY-MM-DD format' },
+      totalAmount: { type: Type.NUMBER, description: 'Total amount in COP (for non-Airbnb)' },
+      usdAmount: { type: Type.NUMBER, description: 'Amount in USD (only for Airbnb)' },
+      platform: { type: Type.STRING, description: 'Airbnb, Booking, Directo, etc.' }
     },
     required: ['propertyId', 'guestName', 'checkInDate', 'checkOutDate']
   }
@@ -80,9 +77,9 @@ const deleteReservationTool: FunctionDeclaration = {
   name: 'deleteReservation',
   description: 'Delete a reservation using its ID.',
   parameters: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      id: { type: SchemaType.STRING, description: 'The exact ID of the reservation to delete' }
+      id: { type: Type.STRING, description: 'The exact ID of the reservation to delete' }
     },
     required: ['id']
   }
@@ -92,13 +89,13 @@ const updateReservationTool: FunctionDeclaration = {
     name: 'updateReservation',
     description: 'Update an existing reservation.',
     parameters: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
-            id: { type: SchemaType.STRING, description: 'The ID of the reservation to update' },
-            totalAmount: { type: SchemaType.NUMBER, description: 'New total amount in COP' },
-            usdAmount: { type: SchemaType.NUMBER, description: 'New USD amount for Airbnb' },
-            guestName: { type: SchemaType.STRING },
-            notes: { type: SchemaType.STRING }
+            id: { type: Type.STRING, description: 'The ID of the reservation to update' },
+            totalAmount: { type: Type.NUMBER, description: 'New total amount in COP' },
+            usdAmount: { type: Type.NUMBER, description: 'New USD amount for Airbnb' },
+            guestName: { type: Type.STRING },
+            notes: { type: Type.STRING }
         },
         required: ['id']
     }
@@ -113,6 +110,12 @@ export const sendChatMessage = async (
   reservations: Reservation[]
 ): Promise<{ text: string; actions: AppAction[] }> => {
   try {
+    // Initialize AI here to ensure process.env.API_KEY is available at runtime
+    if (!process.env.API_KEY) {
+        return { text: "Error: No se ha configurado la API Key de Gemini en el servidor.", actions: [] };
+    }
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
     const context = `
       Eres el asistente virtual inteligente de "Odihna Balance".
       
@@ -146,39 +149,34 @@ export const sendChatMessage = async (
       3. Si es una reserva de Airbnb, prioriza usar el campo usdAmount si el usuario lo menciona en dólares.
     `;
 
-    // Usar SDK público
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-pro',
-      tools: [{ 
-        functionDeclarations: [
-          addPropertyTool, 
-          updatePropertyTool, 
-          deletePropertyTool, 
-          addReservationTool, 
-          deleteReservationTool,
-          updateReservationTool
-        ] 
-      }]
+    const modelId = 'gemini-3-pro-preview';
+    
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: [
+        { role: 'user', parts: [{ text: context }] },
+        { role: 'user', parts: [{ text: message }] }
+      ],
+      config: {
+        tools: [{ 
+            functionDeclarations: [
+                addPropertyTool, 
+                updatePropertyTool, 
+                deletePropertyTool, 
+                addReservationTool, 
+                deleteReservationTool,
+                updateReservationTool
+            ] 
+        }],
+      }
     });
-
-    const chat = model.startChat({
-      history: [
-        {
-          role: 'user',
-          parts: [{ text: context }]
-        }
-      ]
-    });
-
-    const result = await chat.sendMessage(message);
-    const response = result.response;
 
     const actions: AppAction[] = [];
     
-    // Obtener function calls usando SDK público
-    const functionCalls = response.functionCalls();
+    let responseText = response.text || "";
+    const functionCalls = response.functionCalls;
 
-    if (functionCalls && functionCalls.length > 0) {
+    if (functionCalls) {
         for (const fc of functionCalls) {
             const args = fc.args as any;
 
@@ -208,9 +206,6 @@ export const sendChatMessage = async (
         }
     }
 
-    // Obtener texto usando SDK público
-    let responseText = response.text();
-
     if (!responseText.trim() && actions.length > 0) {
         responseText = "¡Listo! He realizado los cambios correctamente.";
     } else if (!responseText.trim()) {
@@ -221,7 +216,7 @@ export const sendChatMessage = async (
 
   } catch (error: any) {
     console.error("Error calling Gemini Chat:", error);
-    return { text: "Lo siento, tuve problemas para conectar con el servidor de IA.", actions: [] };
+    return { text: "Lo siento, tuve problemas para conectar con el servidor de IA. Verifica tu API Key.", actions: [] };
   }
 };
 
@@ -237,6 +232,11 @@ export const parseVoiceCommand = async (
   message?: string 
 }> => {
   try {
+     if (!process.env.API_KEY) {
+        return { type: 'unknown', message: "API Key de Gemini no configurada." };
+     }
+     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
      const propertyList = existingProperties.map(p => ({
         id: p.id,
         name: p.name,
@@ -257,27 +257,20 @@ export const parseVoiceCommand = async (
       Si es Airbnb, intenta detectar si el monto es en dólares y ponlo en usdAmount.
     `;
 
-    // Usar SDK público
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
+     const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
     });
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const resultData = JSON.parse(response.text() || '{}');
+    const result = JSON.parse(response.text || '{}');
     
-    if (resultData.actionType === 'create_property') {
-      return { type: 'property', data: resultData.propertyData, message: "Propiedad detectada." };
-    }
-    
-    if (resultData.actionType === 'create_reservation') {
-        if (!existingProperties.find(p => p.id === resultData.reservationData.propertyId)) {
+    if (result.actionType === 'create_property') return { type: 'property', data: result.propertyData, message: "Propiedad detectada." };
+    if (result.actionType === 'create_reservation') {
+        if (!existingProperties.find(p => p.id === result.reservationData.propertyId)) {
              return { type: 'unknown', message: "No encontré la propiedad especificada." };
         }
-        return { type: 'reservation', data: resultData.reservationData, message: "Reserva detectada." };
+        return { type: 'reservation', data: result.reservationData, message: "Reserva detectada." };
     }
     
     return { type: 'unknown', message: "No pude entender el comando." };
