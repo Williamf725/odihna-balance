@@ -1,0 +1,7 @@
+{
+  "name": "Odihna Balance",
+  "description": "Aplicación de gestión de alquileres vacacionales con cálculo automático de comisiones, reconocimiento de voz y asistente AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "short_name": "Odihna",
+  "name": "Odihna Balance Gestor",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/619/619032.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/619/619032.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0284c7",
+  "background_color": "#ffffff"
+}
