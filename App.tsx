@@ -4,13 +4,14 @@ import ChatBot from './components/ChatBot';
 import VoiceCommandModal from './components/VoiceCommandModal';
 import PropertyModal from './components/PropertyModal';
 import ReservationModal from './components/ReservationModal';
-import { Property, Reservation, Platform, AppAction, CloudConfig, CloudStatus } from './types';
+import PaymentsView from './components/PaymentsView'; // IMPORT NEW COMPONENT
+import { Property, Reservation, Platform, AppAction, CloudConfig, CloudStatus, OwnerPayment } from './types';
 import { uploadToCloud, downloadFromCloud } from './services/cloudService';
 import { 
   Plus, TrendingUp, Users, DollarSign, 
   Trash2, Mic, Calendar as CalendarIcon, MapPin, Pencil, Moon, Building2, Search, X,
-  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, LogOut, ArrowRight, ChevronLeft, Calendar,
-  BarChart, PieChart, Download, Upload, Settings, FileJson, RefreshCw, Copy, Check, Cloud, Wifi, WifiOff, Save, KeyRound, Lock, Unlock, Globe, ArrowDownUp, RefreshCcw, ExternalLink, Loader2
+  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, Lock, LogOut, ArrowRight, ChevronLeft, Calendar,
+  BarChart, PieChart, Download, Upload, Settings, FileJson, RefreshCw, Copy, Check, Cloud, Wifi, WifiOff, Save, KeyRound, LockKeyhole, Unlock, Globe, ArrowDownUp, RefreshCcw, ExternalLink, Loader2
 } from 'lucide-react';
 import { 
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend
@@ -182,6 +183,16 @@ function App() {
     } catch (e) { return []; }
   });
 
+  // NEW: Payments State
+  const [payments, setPayments] = useState<OwnerPayment[]>(() => {
+      try {
+          const saved = localStorage.getItem('gestor_pro_payments');
+          if (!saved || saved === "undefined") return [];
+          const parsed = JSON.parse(saved);
+          return Array.isArray(parsed) ? parsed : [];
+      } catch (e) { return []; }
+  });
+
   // Track if it's the first render to avoid auto-saving on mount
   const isFirstRender = useRef(true);
   
@@ -203,6 +214,13 @@ function App() {
         localStorage.setItem('gestor_pro_reservations', JSON.stringify(reservations));
     }
   }, [reservations]);
+
+  // NEW: Payments Persistence
+  useEffect(() => {
+      if (payments) {
+          localStorage.setItem('gestor_pro_payments', JSON.stringify(payments));
+      }
+  }, [payments]);
 
   useEffect(() => {
       localStorage.setItem('gestor_pro_cloud_config', JSON.stringify(cloudConfig));
@@ -304,7 +322,7 @@ function App() {
     const debounceTimer = setTimeout(async () => {
         setSaveState('saving');
         try {
-            const result = await uploadToCloud(cloudConfig, { properties, reservations });
+            const result = await uploadToCloud(cloudConfig, { properties, reservations, payments }); // Add payments to upload
             if (result.success) {
                 const now = new Date().toLocaleString();
                 localStorage.setItem('gestor_pro_last_synced', now);
@@ -320,7 +338,7 @@ function App() {
     }, 1000); // Wait 1 second after last change before uploading
 
     return () => clearTimeout(debounceTimer);
-  }, [properties, reservations, cloudConfig.apiKey, cloudConfig.binId, cloudConfig.enabled]); 
+  }, [properties, reservations, payments, cloudConfig.apiKey, cloudConfig.binId, cloudConfig.enabled]); 
 
   // --- BROWSER CLOSE PROTECTION ---
   // If the user tries to close the tab while saving, warn them.
@@ -345,7 +363,7 @@ function App() {
       try {
           if (direction === 'upload') {
               // Manual upload overrides safety checks (user knows what they are doing)
-              const result = await uploadToCloud(cloudConfig, { properties, reservations });
+              const result = await uploadToCloud(cloudConfig, { properties, reservations, payments });
               if (result.success) {
                   const now = new Date().toLocaleString();
                   localStorage.setItem('gestor_pro_last_synced', now);
@@ -366,6 +384,7 @@ function App() {
                   // Safety: Ensure we don't set undefined, which breaks localStorage JSON.parse
                   setProperties(Array.isArray(result.data.properties) ? result.data.properties : []);
                   setReservations(Array.isArray(result.data.reservations) ? result.data.reservations : []);
+                  setPayments(Array.isArray(result.data.payments) ? result.data.payments : []);
                   
                   const now = new Date().toLocaleString();
                   localStorage.setItem('gestor_pro_last_synced', now);
@@ -444,6 +463,34 @@ function App() {
       setReservations(reservations.filter(r => r.id !== id));
   };
 
+  // NEW: Payment Handlers
+  const handleAddPayment = (payment: OwnerPayment) => {
+      setSaveState('pending');
+      setPayments(prev => [...prev, payment]);
+      
+      // Update reservations to mark them as paid
+      setReservations(prev => prev.map(r => {
+          if (payment.reservationIds.includes(r.id)) {
+              return { ...r, paymentId: payment.id };
+          }
+          return r;
+      }));
+  };
+
+  const handleDeletePayment = (paymentId: string) => {
+      setSaveState('pending');
+      setPayments(prev => prev.filter(p => p.id !== paymentId));
+      
+      // Unlink reservations (make them unpaid again)
+      setReservations(prev => prev.map(r => {
+          if (r.paymentId === paymentId) {
+              const { paymentId, ...rest } = r; // Remove paymentId
+              return rest as Reservation;
+          }
+          return r;
+      }));
+  };
+
   const openNewProperty = () => {
     setEditingProperty(undefined);
     setIsPropertyModalOpen(true);
@@ -478,8 +525,9 @@ function App() {
     const data = {
         properties,
         reservations,
+        payments,
         timestamp: new Date().toISOString(),
-        version: "1.0"
+        version: "1.1"
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -502,6 +550,7 @@ function App() {
             const data = JSON.parse(content);
             if (data.properties && Array.isArray(data.properties)) setProperties(data.properties);
             if (data.reservations && Array.isArray(data.reservations)) setReservations(data.reservations);
+            if (data.payments && Array.isArray(data.payments)) setPayments(data.payments);
             alert("Datos restaurados correctamente.");
         } catch (error) {
             alert("Error al leer el archivo.");
@@ -721,7 +770,7 @@ function App() {
                 </div>
             </div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold"><tr><th className="px-6 py-4">Propiedad</th><th className="px-6 py-4">Huesped</th><th className="px-6 py-4">Plataforma</th><th className="px-6 py-4">Fechas</th><th className="px-6 py-4">Monto Original</th><th className="px-6 py-4 text-right">Total (COP)</th>{isAdmin && <th className="px-6 py-4 text-right"></th>}</tr></thead><tbody className="divide-y divide-slate-100">{filteredReservations.map((res) => { const prop = visibleProperties.find(p => p.id === res.propertyId); const copValue = getAirbnbCopValue(res); return (<tr key={res.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-medium text-slate-800">{prop?.name || 'Desconocida'}</td><td className="px-6 py-4 text-slate-600">{res.guestName}</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700'}`}>{res.platform}</span></td><td className="px-6 py-4 text-slate-500 text-sm whitespace-nowrap">{formatCustomDate(res.checkInDate, res.checkOutDate)}</td><td className="px-6 py-4 text-slate-600">{res.platform === Platform.Airbnb ? `USD $${res.usdAmount}` : formatCOP(res.totalAmount)}</td><td className="px-6 py-4 text-right font-bold text-slate-800">{formatCOP(copValue)}</td>{isAdmin && (<td className="px-6 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => openEditReservation(res)} className="p-1 text-slate-400 hover:text-primary-600"><Pencil size={16} /></button><button onClick={() => deleteReservation(res.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16} /></button></div></td>)}</tr>); })}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold"><tr><th className="px-6 py-4">Propiedad</th><th className="px-6 py-4">Huesped</th><th className="px-6 py-4">Plataforma</th><th className="px-6 py-4">Fechas</th><th className="px-6 py-4">Monto Original</th><th className="px-6 py-4 text-right">Total (COP)</th><th className="px-6 py-4 text-center">Estado</th>{isAdmin && <th className="px-6 py-4 text-right"></th>}</tr></thead><tbody className="divide-y divide-slate-100">{filteredReservations.map((res) => { const prop = visibleProperties.find(p => p.id === res.propertyId); const copValue = getAirbnbCopValue(res); return (<tr key={res.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-medium text-slate-800">{prop?.name || 'Desconocida'}</td><td className="px-6 py-4 text-slate-600">{res.guestName}</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700'}`}>{res.platform}</span></td><td className="px-6 py-4 text-slate-500 text-sm whitespace-nowrap">{formatCustomDate(res.checkInDate, res.checkOutDate)}</td><td className="px-6 py-4 text-slate-600">{res.platform === Platform.Airbnb ? `USD $${res.usdAmount}` : formatCOP(res.totalAmount)}</td><td className="px-6 py-4 text-right font-bold text-slate-800">{formatCOP(copValue)}</td><td className="px-6 py-4 text-center">{res.paymentId ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase"><Check size={10} /> Pagado</span> : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 uppercase"><AlertTriangle size={10} /> Pendiente</span>}</td>{isAdmin && (<td className="px-6 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => openEditReservation(res)} className="p-1 text-slate-400 hover:text-primary-600"><Pencil size={16} /></button><button onClick={() => deleteReservation(res.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16} /></button></div></td>)}</tr>); })}</tbody></table></div>
       </div>
     );
   };
@@ -944,7 +993,7 @@ function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-end">
                         {/* Manual Rate Input */}
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD → COP)</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD -> COP)</label>
                             <div className="relative">
                                 <DollarSign size={16} className="absolute left-3 top-3 text-indigo-500"/>
                                 <input
@@ -1058,7 +1107,7 @@ function App() {
                             <label className="relative inline-flex items-center cursor-pointer group">
                                 <input type="checkbox" checked={isEditingCloudConfig} onChange={(e) => setIsEditingCloudConfig(e.target.checked)} className="sr-only peer" />
                                 <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <Lock size={16}/>}</div>
+                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <LockKeyhole size={16}/>}</div>
                             </label>
                         </div>
                         <div className={`space-y-3 transition-all ${isEditingCloudConfig ? 'opacity-100' : 'opacity-75'}`}>
@@ -1070,7 +1119,7 @@ function App() {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Bin ID</label>
+                                <label className="block text-sm font-medium text-slate-500 mb-1">Bin ID</label>
                                 <div className="relative">
                                     <input type="text" disabled={!isEditingCloudConfig} value={cloudConfig.binId} onChange={(e) => setCloudConfig(prev => ({...prev, binId: e.target.value}))} className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-colors ${isEditingCloudConfig ? 'bg-white border-slate-300' : 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'}`} />
                                     {!isEditingCloudConfig && <Lock size={12} className="absolute right-3 top-3 text-slate-400" />}
@@ -1120,6 +1169,7 @@ function App() {
                         {activeTab === 'reservations' && 'Libro de Reservas'}
                         {activeTab === 'reports' && 'Reportes'}
                         {activeTab === 'settings' && 'Configuración'}
+                        {activeTab === 'payments' && 'Gestión de Pagos'}
                     </h1>
                     <div className="flex items-center gap-2 mt-1">
                         {isAdmin && <span className="bg-primary-100 text-primary-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide">Admin</span>}
@@ -1152,6 +1202,7 @@ function App() {
                 {activeTab === 'reservations' && renderReservations()}
                 {activeTab === 'reports' && renderReports()}
                 {activeTab === 'settings' && renderSettings()}
+                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} />}
             </main>
         </div>
       </div>
