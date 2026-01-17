@@ -23,6 +23,17 @@ export interface Reservation {
   usdAmount?: number;  // Specific for Airbnb
   platform: Platform;
   notes?: string;
+  paymentId?: string; // ID of the OwnerPayment record. If present, it's paid.
+}
+
+export interface OwnerPayment {
+  id: string;
+  ownerName: string;
+  date: string; // YYYY-MM-DD
+  amountPaid: number; // The manual amount entered by user
+  expectedAmount: number; // The calculated sum of reservations
+  reservationIds: string[]; // List of reservations covered
+  notes?: string;
 }
 
 export interface MonthlyStats {
