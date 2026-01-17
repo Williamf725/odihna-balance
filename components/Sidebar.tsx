@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Building2, CalendarDays, PieChart, MessageSquareText, Settings, Wallet } from 'lucide-react';
+import { LayoutDashboard, Building2, CalendarDays, PieChart, MessageSquare, Settings, Wallet } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -61,7 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, toggleChat, 
               onClick={toggleChat}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-3 rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95"
               >
-              <MessageSquareText size={20} />
+              <MessageSquare size={20} />
               <span className="font-medium">Asistente AI</span>
               </button>
           </div>
@@ -95,7 +95,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, toggleChat, 
                     className="flex flex-col items-center justify-center w-full h-full gap-1 text-purple-600"
                 >
                     <div className="p-1.5 rounded-full bg-purple-50">
-                        <MessageSquareText size={20} strokeWidth={2.5} />
+                        <MessageSquare size={20} strokeWidth={2.5} />
                     </div>
                     <span className="text-[10px] font-medium">AI</span>
                 </button>
