@@ -146,6 +146,7 @@ export const sendChatMessage = async (
       3. Si es una reserva de Airbnb, prioriza usar el campo usdAmount si el usuario lo menciona en dólares.
     `;
 
+    // Usar SDK público
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-1.5-pro',
       tools: [{ 
@@ -173,48 +174,47 @@ export const sendChatMessage = async (
     const response = result.response;
 
     const actions: AppAction[] = [];
-    let responseText = "";
-
-    // Check for function calls
-    const functionCalls = response.functionCalls();
     
-    if (functionCalls && functionCalls.length > 0) {
-      for (const fc of functionCalls) {
-        const args = fc.args as any;
+    // Obtener function calls usando SDK público
+    const functionCalls = response.functionCalls();
 
-        switch (fc.name) {
-          case 'addProperty':
-            actions.push({ type: 'ADD_PROPERTY', payload: { ...args, id: safeId() } });
-            break;
-          case 'updateProperty':
-            actions.push({ type: 'UPDATE_PROPERTY', payload: args });
-            break;
-          case 'deleteProperty':
-            actions.push({ type: 'DELETE_PROPERTY', payload: args });
-            break;
-          case 'addReservation':
-            actions.push({ 
-              type: 'ADD_RESERVATION', 
-              payload: { ...args, id: safeId(), platform: args.platform || 'Directo' } 
-            });
-            break;
-          case 'deleteReservation':
-            actions.push({ type: 'DELETE_RESERVATION', payload: args });
-            break;
-          case 'updateReservation':
-            actions.push({ type: 'UPDATE_RESERVATION', payload: args });
-            break;
+    if (functionCalls && functionCalls.length > 0) {
+        for (const fc of functionCalls) {
+            const args = fc.args as any;
+
+            switch (fc.name) {
+                case 'addProperty':
+                    actions.push({ type: 'ADD_PROPERTY', payload: { ...args, id: safeId() } });
+                    break;
+                case 'updateProperty':
+                    actions.push({ type: 'UPDATE_PROPERTY', payload: args });
+                    break;
+                case 'deleteProperty':
+                    actions.push({ type: 'DELETE_PROPERTY', payload: args });
+                    break;
+                case 'addReservation':
+                    actions.push({ 
+                        type: 'ADD_RESERVATION', 
+                        payload: { ...args, id: safeId(), platform: args.platform || 'Directo' } 
+                    });
+                    break;
+                case 'deleteReservation':
+                    actions.push({ type: 'DELETE_RESERVATION', payload: args });
+                    break;
+                case 'updateReservation':
+                    actions.push({ type: 'UPDATE_RESERVATION', payload: args });
+                    break;
+            }
         }
-      }
     }
 
-    // Get text response
-    responseText = response.text();
+    // Obtener texto usando SDK público
+    let responseText = response.text();
 
     if (!responseText.trim() && actions.length > 0) {
-      responseText = "¡Listo! He realizado los cambios correctamente.";
+        responseText = "¡Listo! He realizado los cambios correctamente.";
     } else if (!responseText.trim()) {
-      responseText = "Lo siento, procesé la información pero no supe qué decir. ¿Podrías intentar de nuevo?";
+        responseText = "Lo siento, procesé la información pero no supe qué decir. ¿Podrías intentar de nuevo?";
     }
 
     return { text: responseText, actions };
@@ -237,10 +237,10 @@ export const parseVoiceCommand = async (
   message?: string 
 }> => {
   try {
-    const propertyList = existingProperties.map(p => ({
-      id: p.id,
-      name: p.name,
-      owner: p.ownerName
+     const propertyList = existingProperties.map(p => ({
+        id: p.id,
+        name: p.name,
+        owner: p.ownerName
     }));
     
     const prompt = `
@@ -257,6 +257,7 @@ export const parseVoiceCommand = async (
       Si es Airbnb, intenta detectar si el monto es en dólares y ponlo en usdAmount.
     `;
 
+    // Usar SDK público
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-1.5-flash',
       generationConfig: {
@@ -273,15 +274,15 @@ export const parseVoiceCommand = async (
     }
     
     if (resultData.actionType === 'create_reservation') {
-      if (!existingProperties.find(p => p.id === resultData.reservationData.propertyId)) {
-        return { type: 'unknown', message: "No encontré la propiedad especificada." };
-      }
-      return { type: 'reservation', data: resultData.reservationData, message: "Reserva detectada." };
+        if (!existingProperties.find(p => p.id === resultData.reservationData.propertyId)) {
+             return { type: 'unknown', message: "No encontré la propiedad especificada." };
+        }
+        return { type: 'reservation', data: resultData.reservationData, message: "Reserva detectada." };
     }
     
     return { type: 'unknown', message: "No pude entender el comando." };
 
   } catch (e: any) {
-    return { type: 'unknown', message: "Hubo un error al procesar el texto con la IA." };
+      return { type: 'unknown', message: "Hubo un error al procesar el texto con la IA." };
   }
 };
