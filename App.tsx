@@ -667,7 +667,7 @@ function App() {
                           <Lock size={32} />
                       </div>
                       <h1 className="text-2xl font-bold text-white">Odihna Balance</h1>
-                      <p className="text-primary-100 mt-2 text-sm">Plataforma de calculo de Odihna</p>
+                      <p className="text-primary-100 mt-2 text-sm">Plataforma de calculo de Odihna x</p>
                   </div>
                   <div className="p-8">
                       {loginStep === 'selection' && (
