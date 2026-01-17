@@ -9,7 +9,7 @@ import { uploadToCloud, downloadFromCloud } from './services/cloudService';
 import { 
   Plus, TrendingUp, Users, DollarSign, 
   Trash2, Mic, Calendar as CalendarIcon, MapPin, Pencil, Moon, Building2, Search, X,
-  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, Lock, LogOut, ArrowRight, ChevronLeft, Calendar,
+  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, LogOut, ArrowRight, ChevronLeft, Calendar,
   BarChart, PieChart, Download, Upload, Settings, FileJson, RefreshCw, Copy, Check, Cloud, Wifi, WifiOff, Save, KeyRound, Lock, Unlock, Globe, ArrowDownUp, RefreshCcw, ExternalLink, Loader2
 } from 'lucide-react';
 import { 
