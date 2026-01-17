@@ -1,9 +1,9 @@
 import { GoogleGenerativeAI, FunctionDeclaration, SchemaType } from "@google/generative-ai";
 import { Property, Reservation, Platform, AppAction } from "../types";
 
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
-
+const apiKey = 'AIzaSyDV33xUUeJgg_t57690lGoHTTwVDgzzBTo';
 const genAI = new GoogleGenerativeAI(apiKey);
+
 
 // Helper for generating safe IDs inside the service
 const safeId = () => {
