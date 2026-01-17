@@ -993,7 +993,7 @@ function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-end">
                         {/* Manual Rate Input */}
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD -> COP)</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD » COP)</label>
                             <div className="relative">
                                 <DollarSign size={16} className="absolute left-3 top-3 text-indigo-500"/>
                                 <input
