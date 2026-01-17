@@ -13,8 +13,14 @@ const safeId = () => {
 
 // Helper to get API Key safely
 const getApiKey = () => {
-    // Vite exposes variables starting with VITE_ on import.meta.env
-    return import.meta.env.VITE_API_KEY;
+    try {
+        // Thanks to vite.config.ts 'define', this expression is replaced by the string literal at build time.
+        // e.g., returns "AIzaSy..." directly.
+        return import.meta.env.VITE_API_KEY;
+    } catch (e) {
+        console.warn("Error accessing API Key:", e);
+        return undefined;
+    }
 };
 
 // --- Tool Definitions ---
