@@ -1,4 +1,4 @@
-import { Property, Reservation, CloudConfig } from "../types";
+import { Property, Reservation, CloudConfig, OwnerPayment } from "../types";
 
 const MOCK_DELAY = 2000; // 2 seconds to simulate network
 const MOCK_STORAGE_KEY = 'odihna_balance_cloud_mock';
@@ -6,6 +6,7 @@ const MOCK_STORAGE_KEY = 'odihna_balance_cloud_mock';
 interface BackupData {
     properties: Property[];
     reservations: Reservation[];
+    payments: OwnerPayment[];
     timestamp: string;
     version: string;
 }
@@ -15,15 +16,16 @@ interface BackupData {
  */
 export const uploadToCloud = async (
     config: CloudConfig,
-    data: { properties: Property[], reservations: Reservation[] }
+    data: { properties: Property[], reservations: Reservation[], payments?: OwnerPayment[] }
 ): Promise<{ success: boolean; timestamp: string; message?: string }> => {
     
     // Safety: Ensure we never send undefined/null, always arrays
     const payload: BackupData = {
         properties: Array.isArray(data.properties) ? data.properties : [],
         reservations: Array.isArray(data.reservations) ? data.reservations : [],
+        payments: Array.isArray(data.payments) ? data.payments : [],
         timestamp: new Date().toISOString(),
-        version: "1.0"
+        version: "1.1" // Bumped version for payments support
     };
 
     // 1. Simulation Mode (Default)
@@ -124,6 +126,7 @@ export const downloadFromCloud = async (
         const validatedData: BackupData = {
             properties: Array.isArray(rawData.properties) ? rawData.properties : [],
             reservations: Array.isArray(rawData.reservations) ? rawData.reservations : [],
+            payments: Array.isArray(rawData.payments) ? rawData.payments : [],
             timestamp: rawData.timestamp || new Date().toISOString(),
             version: rawData.version || "1.0"
         };
