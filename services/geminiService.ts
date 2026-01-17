@@ -1,4 +1,5 @@
-import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
+import { GoogleGenerativeAI, FunctionDeclaration, SchemaType } from "@google/generative-ai";
+
 import { Property, Reservation, Platform, AppAction } from "../types";
 
 // Helper for generating safe IDs inside the service
