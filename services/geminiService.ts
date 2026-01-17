@@ -147,7 +147,7 @@ export const sendChatMessage = async (
     `;
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-1.5-pro',
       tools: [{ 
         functionDeclarations: [
           addPropertyTool, 
@@ -258,7 +258,7 @@ export const parseVoiceCommand = async (
     `;
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       generationConfig: {
         responseMimeType: "application/json"
       }
