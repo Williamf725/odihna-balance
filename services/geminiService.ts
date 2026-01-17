@@ -11,6 +11,12 @@ const safeId = () => {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 };
 
+// Helper to get API Key safely
+const getApiKey = () => {
+    // Vite exposes variables starting with VITE_ on import.meta.env
+    return import.meta.env.VITE_API_KEY;
+};
+
 // --- Tool Definitions ---
 
 const addPropertyTool: FunctionDeclaration = {
@@ -110,11 +116,11 @@ export const sendChatMessage = async (
   reservations: Reservation[]
 ): Promise<{ text: string; actions: AppAction[] }> => {
   try {
-    // Initialize AI here to ensure process.env.API_KEY is available at runtime
-    if (!process.env.API_KEY) {
-        return { text: "Error: No se ha configurado la API Key de Gemini en el servidor.", actions: [] };
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        return { text: "Error de Configuración: No se encontró la variable VITE_API_KEY. Por favor agrégala en Vercel.", actions: [] };
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     const context = `
       Eres el asistente virtual inteligente de "Odihna Balance".
@@ -149,6 +155,7 @@ export const sendChatMessage = async (
       3. Si es una reserva de Airbnb, prioriza usar el campo usdAmount si el usuario lo menciona en dólares.
     `;
 
+    // Fallback to flash model if pro is unavailable for the key tier, but try Pro first as requested
     const modelId = 'gemini-3-pro-preview';
     
     const response = await ai.models.generateContent({
@@ -215,8 +222,15 @@ export const sendChatMessage = async (
     return { text: responseText, actions };
 
   } catch (error: any) {
-    console.error("Error calling Gemini Chat:", error);
-    return { text: "Lo siento, tuve problemas para conectar con el servidor de IA. Verifica tu API Key.", actions: [] };
+    // Detailed logging for debugging in browser console
+    console.error("Gemini API Error Details:", error);
+    
+    let userMsg = "Lo siento, tuve problemas para conectar con el servidor de IA.";
+    if (error.message?.includes("403")) userMsg += " (Error de Permisos/API Key inválida)";
+    if (error.message?.includes("404")) userMsg += " (Modelo no encontrado)";
+    if (error.message?.includes("429")) userMsg += " (Límite de cuota excedido)";
+    
+    return { text: userMsg + " Verifica la consola para más detalles.", actions: [] };
   }
 };
 
@@ -232,10 +246,11 @@ export const parseVoiceCommand = async (
   message?: string 
 }> => {
   try {
-     if (!process.env.API_KEY) {
-        return { type: 'unknown', message: "API Key de Gemini no configurada." };
+     const apiKey = getApiKey();
+     if (!apiKey) {
+        return { type: 'unknown', message: "Error: Falta VITE_API_KEY." };
      }
-     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+     const ai = new GoogleGenAI({ apiKey });
 
      const propertyList = existingProperties.map(p => ({
         id: p.id,
@@ -276,6 +291,7 @@ export const parseVoiceCommand = async (
     return { type: 'unknown', message: "No pude entender el comando." };
 
   } catch (e: any) {
-      return { type: 'unknown', message: "Hubo un error al procesar el texto con la IA." };
+      console.error("Voice Command Error:", e);
+      return { type: 'unknown', message: "Error al procesar el texto con la IA." };
   }
 };
