@@ -1150,7 +1150,7 @@ function App() {
                             <label className="relative inline-flex items-center cursor-pointer group">
                                 <input type="checkbox" checked={isEditingCloudConfig} onChange={(e) => setIsEditingCloudConfig(e.target.checked)} className="sr-only peer" />
                                 <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <LockKeyhole size={16}/>}</div>
+                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <Lock size={16}/>}</div>
                             </label>
                         </div>
                         <div className={`space-y-3 transition-all ${isEditingCloudConfig ? 'opacity-100' : 'opacity-75'}`}>
