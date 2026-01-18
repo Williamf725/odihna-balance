@@ -24,6 +24,11 @@ export interface Reservation {
   platform: Platform;
   notes?: string;
   paymentId?: string; // ID of the OwnerPayment record. If present, it's paid.
+  
+  // ===== NUEVOS CAMPOS SOLO PARA AIRBNB =====
+  exchangeRate?: number; // Tasa COP/USD específica de esta reserva (ej: 4280.50)
+  enteredAs?: 'COP' | 'USD'; // Cómo ingresó el usuario el monto originalmente
+  // ===========================================
 }
 
 export interface OwnerPayment {
