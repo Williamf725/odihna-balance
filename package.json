@@ -14,7 +14,7 @@
     "lucide-react": "^0.263.1",
     "recharts": "^2.7.2",
     "@google/generative-ai": "^0.21.0"
-
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
