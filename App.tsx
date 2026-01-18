@@ -426,12 +426,39 @@ function App() {
   }, [visibleReservations, currentMonth]);
 
   // Helper for Airbnb logic: Compare rates and pick the one that benefits the user (lower payout)
-  const getAirbnbCopValue = (res: Reservation) => {
-      if (res.platform !== Platform.Airbnb || !res.usdAmount) return res.totalAmount;
-      const effectiveRate = Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
-      return res.usdAmount * effectiveRate;
-  };
+ const getAirbnbCopValue = (res: Reservation) => {
+    // Para NO-Airbnb, siempre usar totalAmount
+    if (res.platform !== Platform.Airbnb) return res.totalAmount;
+    
+    // Para Airbnb: Si tiene tasa específica, usarla
+    if (res.exchangeRate && res.usdAmount) {
+        return res.usdAmount * res.exchangeRate;
+    }
+    
+    // Fallback para reservas antiguas sin exchangeRate (compatibilidad)
+    if (res.usdAmount) {
+        const effectiveRate = Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
+        return res.usdAmount * effectiveRate;
+    }
+    
+    // Si solo tiene totalAmount
+    return res.totalAmount;
+};
 
+  // Helper para mostrar detalles de Airbnb en reportes
+const getAirbnbDetails = (res: Reservation) => {
+    if (res.platform !== Platform.Airbnb) return null;
+    
+    return {
+        usd: res.usdAmount || 0,
+        cop: res.totalAmount || 0,
+        rate: res.exchangeRate || 0,
+        enteredAs: res.enteredAs || 'USD',
+        calculatedCop: getAirbnbCopValue(res)
+    };
+};
+
+  
   const getAirbnbEffectiveRate = () => Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
 
 
@@ -952,19 +979,26 @@ function App() {
                                                         </div>
                                                         {item.isPartial && <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200"><AlertTriangle size={10} className="mr-1"/> Conflicto de fechas</span>}
                                                     </td>
-                                                    <td className="px-4 py-3 text-slate-500 text-xs">
-                                                        {formatCustomDate(item.res.checkInDate, item.res.checkOutDate)}
-                                                    </td>
                                                     <td className={`px-4 py-3 text-right ${item.isExcluded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                                                        <div className="flex flex-col">
-                                                            <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
-                                                            {item.res.platform === Platform.Airbnb && (
-                                                                <span className="text-[10px] text-emerald-600 font-medium">
-                                                                    USD ${item.res.usdAmount} @ {getAirbnbEffectiveRate()}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </td>
+    <div className="flex flex-col">
+        <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
+        {item.res.platform === Platform.Airbnb && (
+            <div className="text-[10px] space-y-0.5 mt-1">
+                {item.res.enteredAs === 'COP' ? (
+                    <>
+                        <div className="text-blue-600 font-bold">💵 Ingresado: {formatCOP(item.res.totalAmount)}</div>
+                        <div className="text-emerald-600">→ USD ${item.res.usdAmount?.toFixed(2)} @ {item.res.exchangeRate}</div>
+                    </>
+                ) : (
+                    <>
+                        <div className="text-emerald-600 font-bold">💵 Ingresado: USD ${item.res.usdAmount}</div>
+                        <div className="text-blue-600">→ Tasa: {item.res.exchangeRate} COP/USD</div>
+                    </>
+                )}
+            </div>
+        )}
+    </div>
+</td>
                                                     {isAdmin && (
                                                         <td className={`px-4 py-3 text-right font-mono text-xs ${item.isExcluded ? 'line-through text-slate-300' : 'text-red-500'}`}>
                                                             -{formatCOP(item.commission)}
