@@ -115,7 +115,7 @@ export const processExcelFile = async (
 
                 if (isPropertySheet) {
                     // PROCESS PROPERTIES
-                    jsonData.forEach((row: any, index) => {
+                    jsonData.forEach((row: any, index: number) => {
                         const name = findValue(row, {}, PROPERTY_MAP.name);
                         const ownerName = findValue(row, {}, PROPERTY_MAP.ownerName);
                         
@@ -131,7 +131,7 @@ export const processExcelFile = async (
                     });
                 } else {
                     // PROCESS RESERVATIONS
-                    jsonData.forEach((row: any, index) => {
+                    jsonData.forEach((row: any, index: number) => {
                         const guestName = findValue(row, {}, RESERVATION_MAP.guestName);
                         const propName = findValue(row, {}, RESERVATION_MAP.propertyName);
                         
