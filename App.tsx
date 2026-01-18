@@ -7,11 +7,12 @@ import ReservationModal from './components/ReservationModal';
 import PaymentsView from './components/PaymentsView'; // IMPORT NEW COMPONENT
 import { Property, Reservation, Platform, AppAction, CloudConfig, CloudStatus, OwnerPayment } from './types';
 import { uploadToCloud, downloadFromCloud } from './services/cloudService';
+import { processExcelFile } from './services/excelService'; // IMPORT EXCEL SERVICE
 import { 
   Plus, TrendingUp, Users, DollarSign, 
   Trash2, Mic, Calendar as CalendarIcon, MapPin, Pencil, Moon, Building2, Search, X,
-  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, LogOut, ArrowRight, ChevronLeft, Calendar,
-  BarChart, PieChart, Download, Upload, Settings, FileJson, RefreshCw, Copy, Check, Cloud, Wifi, WifiOff, Save, KeyRound, Lock, Unlock, Globe, ArrowDownUp, RefreshCcw, ExternalLink, Loader2
+  CalendarRange, AlertTriangle, CheckSquare, Square, Filter, User, Lock, LogOut, ArrowRight, ChevronLeft, Calendar,
+  BarChart, PieChart, Download, Upload, Settings, FileJson, RefreshCw, Copy, Check, Cloud, Wifi, WifiOff, Save, KeyRound, LockKeyhole, Unlock, Globe, ArrowDownUp, RefreshCcw, ExternalLink, Loader2, FileSpreadsheet
 } from 'lucide-react';
 import { 
   BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend
@@ -125,6 +126,7 @@ function App() {
 
   // Hidden File Input Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null); // NEW REF for Excel
 
   // --- Cloud Sync State ---
   const [cloudConfig, setCloudConfig] = useState<CloudConfig>(() => {
@@ -560,6 +562,47 @@ function App() {
     event.target.value = '';
   };
 
+  // NEW: Excel Import Handler
+  const handleImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+          // Process file using the new service
+          const result = await processExcelFile(file, properties);
+          
+          if (result.errors.length > 0) {
+              const confirmText = `Se encontraron algunos problemas:\n\n${result.errors.slice(0, 5).join('\n')}${result.errors.length > 5 ? '\n...' : ''}\n\n¿Deseas importar lo que sí pudimos leer?`;
+              if (!window.confirm(confirmText)) {
+                  event.target.value = '';
+                  return;
+              }
+          }
+
+          if (result.newProperties.length === 0 && result.newReservations.length === 0) {
+              alert("No encontramos datos válidos para importar. Revisa los encabezados de tu Excel.");
+              event.target.value = '';
+              return;
+          }
+
+          // Merge Data
+          setSaveState('pending');
+          if (result.newProperties.length > 0) {
+              setProperties(prev => [...prev, ...result.newProperties]);
+          }
+          if (result.newReservations.length > 0) {
+              setReservations(prev => [...prev, ...result.newReservations]);
+          }
+
+          alert(`${result.summary} Importación exitosa.`);
+
+      } catch (e: any) {
+          alert(e.message || "Error desconocido al importar Excel.");
+      }
+      
+      event.target.value = ''; // Reset input
+  };
+
   const copyToClipboard = (text: string) => {
       navigator.clipboard.writeText(text);
       setCopiedId(text);
@@ -667,7 +710,7 @@ function App() {
                           <Lock size={32} />
                       </div>
                       <h1 className="text-2xl font-bold text-white">Odihna Balance</h1>
-                      <p className="text-primary-100 mt-2 text-sm">Plataforma de calculo de Odihna x</p>
+                      <p className="text-primary-100 mt-2 text-sm">Plataforma de calculo de Odihna</p>
                   </div>
                   <div className="p-8">
                       {loginStep === 'selection' && (
@@ -993,7 +1036,7 @@ function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-end">
                         {/* Manual Rate Input */}
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD » COP)</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Tasa de Pago Airbnb (USD -> COP)</label>
                             <div className="relative">
                                 <DollarSign size={16} className="absolute left-3 top-3 text-indigo-500"/>
                                 <input
@@ -1107,7 +1150,7 @@ function App() {
                             <label className="relative inline-flex items-center cursor-pointer group">
                                 <input type="checkbox" checked={isEditingCloudConfig} onChange={(e) => setIsEditingCloudConfig(e.target.checked)} className="sr-only peer" />
                                 <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <Lock size={16}/>}</div>
+                                <div className="ml-2 text-slate-400">{isEditingCloudConfig ? <Unlock size={16}/> : <LockKeyhole size={16}/>}</div>
                             </label>
                         </div>
                         <div className={`space-y-3 transition-all ${isEditingCloudConfig ? 'opacity-100' : 'opacity-75'}`}>
@@ -1131,6 +1174,20 @@ function App() {
              </div>
 
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {/* NEW: Excel Import Card */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="flex items-center gap-3 mb-4"><div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><FileSpreadsheet size={24} /></div><h3 className="font-bold text-slate-800">Importación Masiva (Excel)</h3></div>
+                    <div className="space-y-3">
+                         <p className="text-xs text-slate-500 leading-relaxed">
+                            Sube un archivo .xlsx para agregar propiedades o reservas rápidamente. El sistema detectará las columnas automáticamente (Ej: "Nombre", "Dueño" o "Huesped", "Entrada").
+                         </p>
+                        <div className="relative">
+                            <input type="file" ref={excelInputRef} onChange={handleImportExcel} accept=".xlsx, .xls, .csv" className="hidden" />
+                            <button onClick={() => excelInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white py-3 rounded-xl font-medium hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-100"><Upload size={18} />Cargar Excel / CSV</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <div className="flex items-center gap-3 mb-4"><div className="p-2 bg-slate-100 text-slate-600 rounded-lg"><FileJson size={24} /></div><h3 className="font-bold text-slate-800">Respaldo Local</h3></div>
                     <div className="space-y-3">
@@ -1141,7 +1198,8 @@ function App() {
                         </div>
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-red-500">
+                
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 border-l-4 border-l-red-500 md:col-span-2">
                     <div className="flex items-center gap-3 mb-4"><div className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={24} /></div><h3 className="font-bold text-slate-800">Zona de Peligro</h3></div>
                     <button onClick={() => { if (window.confirm("¿ESTÁS SEGURO?")) { setProperties([]); setReservations([]); localStorage.clear(); alert("Sistema reiniciado."); } }} className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 py-3 rounded-xl font-medium hover:bg-red-100 transition-colors"><AlertTriangle size={18} />Reiniciar de Fábrica</button>
                 </div>
