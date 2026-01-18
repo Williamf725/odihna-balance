@@ -43,7 +43,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
 
     // 1. Group Pending Reservations by Owner
-    const pendingByOwner = useMemo(() => {
+    const pendingByOwner = useMemo<Record<string, { totalPayout: number, count: number, reservations: Reservation[] }>>(() => {
         const groups: Record<string, { totalPayout: number, count: number, reservations: Reservation[] }> = {};
         
         reservations.forEach(res => {
