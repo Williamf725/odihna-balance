@@ -67,7 +67,7 @@ const deletePropertyTool: FunctionDeclaration = {
 
 const addReservationTool: FunctionDeclaration = {
   name: 'addReservation',
-  description: 'Add a new reservation. If it is Airbnb, use usdAmount.',
+  description: 'Add a new reservation. For Airbnb reservations, include exchangeRate and enteredAs fields to track the conversion rate and currency used.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -75,11 +75,13 @@ const addReservationTool: FunctionDeclaration = {
       guestName: { type: SchemaType.STRING, description: 'Name of the guest' },
       checkInDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
       checkOutDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
-      totalAmount: { type: SchemaType.NUMBER, description: 'Total amount in COP (for non-Airbnb)' },
-      usdAmount: { type: SchemaType.NUMBER, description: 'Amount in USD (only for Airbnb)' },
-      platform: { type: SchemaType.STRING, description: 'Airbnb, Booking, Directo, etc.' }
+      totalAmount: { type: SchemaType.NUMBER, description: 'Total amount in COP. For Airbnb, this is calculated based on USD and exchange rate.' },
+      usdAmount: { type: SchemaType.NUMBER, description: 'Amount in USD (only for Airbnb reservations)' },
+      platform: { type: SchemaType.STRING, description: 'Platform: Airbnb, Booking, Directo, or Otro' },
+      exchangeRate: { type: SchemaType.NUMBER, description: 'COP/USD exchange rate (only for Airbnb). Example: 4280.50 means 1 USD = 4280.50 COP' },
+      enteredAs: { type: SchemaType.STRING, description: 'How the amount was entered: "COP" or "USD" (only for Airbnb)' }
     },
-    required: ['propertyId', 'guestName', 'checkInDate', 'checkOutDate']
+    required: ['propertyId', 'guestName', 'checkInDate', 'checkOutDate', 'platform']
   }
 };
 
@@ -97,15 +99,17 @@ const deleteReservationTool: FunctionDeclaration = {
 
 const updateReservationTool: FunctionDeclaration = {
     name: 'updateReservation',
-    description: 'Update an existing reservation.',
+    description: 'Update an existing reservation. For Airbnb, you can update exchangeRate and amounts.',
     parameters: {
         type: SchemaType.OBJECT,
         properties: {
             id: { type: SchemaType.STRING, description: 'The ID of the reservation to update' },
             totalAmount: { type: SchemaType.NUMBER, description: 'New total amount in COP' },
-            usdAmount: { type: SchemaType.NUMBER, description: 'New USD amount for Airbnb' },
-            guestName: { type: SchemaType.STRING },
-            notes: { type: SchemaType.STRING }
+            usdAmount: { type: SchemaType.NUMBER, description: 'New USD amount (for Airbnb)' },
+            guestName: { type: SchemaType.STRING, description: 'New guest name' },
+            notes: { type: SchemaType.STRING, description: 'Additional notes' },
+            exchangeRate: { type: SchemaType.NUMBER, description: 'New exchange rate (for Airbnb)' },
+            enteredAs: { type: SchemaType.STRING, description: 'Updated entry method: COP or USD (for Airbnb)' }
         },
         required: ['id']
     }
@@ -122,7 +126,10 @@ export const sendChatMessage = async (
   try {
     const apiKey = getApiKey();
     if (!apiKey) {
-        return { text: "Error de Configuración: No se encontró la variable VITE_API_KEY. Por favor agrégala en Vercel.", actions: [] };
+        return { 
+            text: "Error de Configuración: No se encontró la variable VITE_API_KEY. Por favor agrégala en Vercel en Settings > Environment Variables.", 
+            actions: [] 
+        };
     }
     const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -135,33 +142,55 @@ export const sendChatMessage = async (
   - Habla de forma natural, no como un robot.
   
   CONTEXTO TÉCNICO:
-  - Moneda: Pesos Colombianos (COP) para reservas directas/Booking.
-  - IMPORTANTE: Para reservas de AIRBNB, el usuario prefiere ingresar el monto en DOLARES (USD) si es posible.
+  - Moneda principal: Pesos Colombianos (COP) para reservas directas/Booking.
+  - IMPORTANTE - RESERVAS DE AIRBNB:
+    * El usuario puede ingresar el monto en DÓLARES (USD) o en PESOS (COP).
+    * SIEMPRE debes solicitar o detectar la TASA DE CAMBIO específica de esa reserva (exchangeRate).
+    * SIEMPRE debes indicar cómo se ingresó el monto (enteredAs: "USD" o "COP").
+    * Cada reserva de Airbnb tiene su propia tasa porque el dólar fluctúa.
+    * Ejemplo: Si el usuario dice "reserva de $250 USD con tasa de 4280", debes:
+      - usdAmount: 250
+      - exchangeRate: 4280
+      - totalAmount: 1070000 (250 × 4280)
+      - enteredAs: "USD"
   - Fecha actual: ${new Date().toISOString().split('T')[0]}.
 
   DATOS ACTUALES DEL SISTEMA:
   PROPIEDADES:
-  ${JSON.stringify(properties.map(p => ({ id: p.id, name: p.name, owner: p.ownerName, commission: p.commissionRate })))}
+  ${JSON.stringify(properties.map(p => ({ 
+    id: p.id, 
+    name: p.name, 
+    owner: p.ownerName, 
+    commission: p.commissionRate 
+  })))}
   
   RESERVAS:
   ${JSON.stringify(reservations.map(r => ({ 
     id: r.id, 
     propId: r.propertyId, 
-    guest: r.guestName, 
-    amount: r.totalAmount,
-    usd: r.usdAmount,
+    guest: r.guestName,
+    platform: r.platform,
+    copAmount: r.totalAmount,
+    usdAmount: r.usdAmount || null,
+    exchangeRate: r.exchangeRate || null,
+    enteredAs: r.enteredAs || null,
     dates: r.checkInDate + ' to ' + r.checkOutDate
   })))}
   
   INSTRUCCIONES DE INTERACCIÓN:
   1. Si el usuario pide una acción (agregar, borrar, editar), EJECUTA LA HERRAMIENTA correspondiente.
   2. MUY IMPORTANTE: Cuando ejecutes una herramienta, GENERA TAMBIÉN UNA RESPUESTA DE TEXTO AMABLE confirmando la acción verbalmente.
-  3. Si es una reserva de Airbnb, prioriza usar el campo usdAmount si el usuario lo menciona en dólares.
+  3. Para reservas de Airbnb:
+     - Si el usuario no especifica la tasa de cambio, pregúntale antes de crear la reserva.
+     - Si ingresa en USD, calcula el COP automáticamente con la tasa.
+     - Si ingresa en COP, calcula el USD automáticamente con la tasa.
+     - Siempre confirma los valores calculados en tu respuesta.
+  4. Para otras plataformas (Booking, Directo), solo usa totalAmount en COP.
 `;
 
-
+    // ✅ CAMBIO CRÍTICO 1: Usar gemini-2.5-flash (modelo disponible)
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       tools: [{ 
         functionDeclarations: [
           addPropertyTool, 
@@ -207,7 +236,11 @@ export const sendChatMessage = async (
                 case 'addReservation':
                     actions.push({ 
                         type: 'ADD_RESERVATION', 
-                        payload: { ...args, id: safeId(), platform: args.platform || 'Directo' } 
+                        payload: { 
+                            ...args, 
+                            id: safeId(), 
+                            platform: args.platform || 'Directo'
+                        } 
                     });
                     break;
                 case 'deleteReservation':
@@ -234,9 +267,15 @@ export const sendChatMessage = async (
     console.error("Gemini API Error Details:", error);
     
     let userMsg = "Lo siento, tuve problemas para conectar con el servidor de IA.";
-    if (error.message?.includes("403")) userMsg += " (Error de Permisos/API Key inválida)";
-    if (error.message?.includes("404")) userMsg += " (Modelo no encontrado)";
-    if (error.message?.includes("429")) userMsg += " (Límite de cuota excedido)";
+    if (error.message?.includes("403")) {
+        userMsg += " (Error de Permisos/API Key inválida - verifica que VITE_API_KEY esté configurada en Vercel)";
+    }
+    if (error.message?.includes("404")) {
+        userMsg += " (Modelo no encontrado - el modelo gemini-2.5-flash debería estar disponible. Verifica tu API key)";
+    }
+    if (error.message?.includes("429")) {
+        userMsg += " (Límite de cuota excedido - espera un momento antes de reintentar)";
+    }
     
     return { text: userMsg + " Verifica la consola para más detalles.", actions: [] };
   }
@@ -275,13 +314,30 @@ export const parseVoiceCommand = async (
       
       Devuelve SOLO un objeto JSON:
       1. Propiedad: { "actionType": "create_property", "propertyData": { "name": "...", "ownerName": "...", "city": "...", "commissionRate": 15 } }
-      2. Reserva: { "actionType": "create_reservation", "reservationData": { "propertyId": "ID", "guestName": "...", "totalAmount": 0, "usdAmount": 0, "platform": "Airbnb|Booking|Directo", "checkInDate": "YYYY-MM-DD", "checkOutDate": "YYYY-MM-DD" } }
+      2. Reserva: { 
+           "actionType": "create_reservation", 
+           "reservationData": { 
+             "propertyId": "ID", 
+             "guestName": "...", 
+             "totalAmount": 0, 
+             "usdAmount": 0, 
+             "platform": "Airbnb|Booking|Directo", 
+             "checkInDate": "YYYY-MM-DD", 
+             "checkOutDate": "YYYY-MM-DD",
+             "exchangeRate": 4200,
+             "enteredAs": "USD"
+           } 
+         }
       
-      Si es Airbnb, intenta detectar si el monto es en dólares y ponlo en usdAmount.
+      Si es Airbnb, intenta detectar:
+      - La tasa de cambio (exchangeRate) si se menciona
+      - Si el monto está en USD o COP (enteredAs)
+      - Ambos valores (totalAmount y usdAmount) calculados según la tasa
     `;
 
+    // ✅ CAMBIO CRÍTICO 2: Usar gemini-2.5-flash
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       generationConfig: {
         responseMimeType: "application/json"
       }
