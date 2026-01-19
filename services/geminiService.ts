@@ -21,6 +21,33 @@ const getApiKey = () => {
     }
 };
 
+// ✅ NUEVO: Helper para obtener TRM actual
+const getCurrentExchangeRate = async (): Promise<{ rate: number; source: string; date: string }> => {
+  try {
+    const response = await fetch(
+      'https://www.datos.gov.co/resource/32sa-8pi3.json?$limit=1&$order=vigenciahasta%20DESC'
+    );
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.[0]?.valor) {
+        return {
+          rate: parseFloat(data[0].valor),
+          source: 'Banco de la República de Colombia (TRM Oficial)',
+          date: data[0].vigenciahasta || new Date().toISOString()
+        };
+      }
+    }
+    throw new Error('API failed');
+  } catch (e) {
+    console.error("Error fetching exchange rate:", e);
+    return {
+      rate: 4200,
+      source: 'Valor por defecto (sin conexión)',
+      date: new Date().toISOString()
+    };
+  }
+};
+
 // --- Tool Definitions ---
 
 const addPropertyTool: FunctionDeclaration = {
@@ -38,16 +65,18 @@ const addPropertyTool: FunctionDeclaration = {
   }
 };
 
+// ✅ ACTUALIZADA: Ahora permite cambiar ciudad
 const updatePropertyTool: FunctionDeclaration = {
   name: 'updateProperty',
-  description: 'Update an existing property details, especially commission rate.',
+  description: 'Update an existing property details. Can update commission, name, owner, or city. You can update multiple properties by calling this function multiple times.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
       id: { type: SchemaType.STRING, description: 'The exact ID of the property to update' },
       commissionRate: { type: SchemaType.NUMBER, description: 'The new commission percentage' },
-      name: { type: SchemaType.STRING },
-      ownerName: { type: SchemaType.STRING }
+      name: { type: SchemaType.STRING, description: 'The new property name' },
+      ownerName: { type: SchemaType.STRING, description: 'The new owner name' },
+      city: { type: SchemaType.STRING, description: 'The new city location' }
     },
     required: ['id']
   }
@@ -55,7 +84,7 @@ const updatePropertyTool: FunctionDeclaration = {
 
 const deletePropertyTool: FunctionDeclaration = {
   name: 'deleteProperty',
-  description: 'Delete a property from the database using its ID.',
+  description: 'Delete a property from the database using its ID or number.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -87,7 +116,7 @@ const addReservationTool: FunctionDeclaration = {
 
 const deleteReservationTool: FunctionDeclaration = {
   name: 'deleteReservation',
-  description: 'Delete a reservation using its ID.',
+  description: 'Delete a reservation using its ID or number.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -115,6 +144,17 @@ const updateReservationTool: FunctionDeclaration = {
     }
 };
 
+// ✅ NUEVO: Herramienta para consultar TRM
+const getExchangeRateTool: FunctionDeclaration = {
+  name: 'getCurrentExchangeRate',
+  description: 'Get the current official TRM (exchange rate COP/USD) from Banco de la República de Colombia. Use this when user asks about current dollar price or exchange rate.',
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {},
+    required: []
+  }
+};
+
 /**
  * Chat with the AI using context and Tools.
  */
@@ -133,62 +173,90 @@ export const sendChatMessage = async (
     }
     const genAI = new GoogleGenerativeAI(apiKey);
 
+    // ✅ MEJORADO: Lista numerada de propiedades y reservas
+    const propertiesList = properties.map((p, index) => ({
+      number: index + 1,
+      id: p.id,
+      name: p.name,
+      owner: p.ownerName,
+      city: p.city,
+      commission: p.commissionRate
+    }));
+
+    const reservationsList = reservations.map((r, index) => ({
+      number: index + 1,
+      id: r.id,
+      propertyId: r.propertyId,
+      guest: r.guestName,
+      platform: r.platform,
+      copAmount: r.totalAmount,
+      usdAmount: r.usdAmount || null,
+      exchangeRate: r.exchangeRate || null,
+      enteredAs: r.enteredAs || null,
+      dates: `${r.checkInDate} to ${r.checkOutDate}`
+    }));
+
    const context = `
   Eres el asistente virtual inteligente de "Odihna Balance".
   
   PERSONALIDAD:
   - Eres amable, profesional, proactivo y entusiasta.
-  - Tu objetivo es ayudar al usuario a gestionar sus alquileres con facilidad.
-  - Habla de forma natural, no como un robot.
+  - Además de ayudar con la gestión de alquileres, puedes:
+    * Responder preguntas generales de negocios, finanzas, y matemáticas
+    * Hacer cálculos matemáticos
+    * Consultar la tasa de cambio oficial actual (TRM)
+    * Dar consejos sobre gestión de propiedades
+  
+  CAPACIDADES:
+  
+  1. GESTIÓN DE PROPIEDADES Y RESERVAS:
+     - Cuando el usuario mencione "propiedad número X" o "las primeras 10", usa el campo "number".
+     - Cuando mencione "propiedad [nombre]", busca por el campo "name".
+     - Puedes actualizar CUALQUIER campo: nombre, dueño, ciudad, comisión.
+     - Para actualizar múltiples propiedades, llama a updateProperty varias veces.
+  
+  2. CONSULTAS Y CÁLCULOS:
+     - Haz cálculos matemáticos cuando te lo pidan.
+     - Responde preguntas sobre negocios y finanzas.
+     - Si preguntan por el dólar/TRM actual, usa la herramienta getCurrentExchangeRate.
+  
+  3. LIMITACIONES:
+     - NO puedes editar fechas de reservas (solo montos, huésped, notas).
+     - NO tienes acceso a clima, noticias recientes, o eventos específicos.
   
   CONTEXTO TÉCNICO:
-  - Moneda principal: Pesos Colombianos (COP) para reservas directas/Booking.
-  - IMPORTANTE - RESERVAS DE AIRBNB:
-    * El usuario puede ingresar el monto en DÓLARES (USD) o en PESOS (COP).
-    * SIEMPRE debes solicitar o detectar la TASA DE CAMBIO específica de esa reserva (exchangeRate).
-    * SIEMPRE debes indicar cómo se ingresó el monto (enteredAs: "USD" o "COP").
-    * Cada reserva de Airbnb tiene su propia tasa porque el dólar fluctúa.
-    * Ejemplo: Si el usuario dice "reserva de $250 USD con tasa de 4280", debes:
-      - usdAmount: 250
-      - exchangeRate: 4280
-      - totalAmount: 1070000 (250 × 4280)
-      - enteredAs: "USD"
-  - Fecha actual: ${new Date().toISOString().split('T')[0]}.
+  - Moneda principal: Pesos Colombianos (COP)
+  - Para reservas de AIRBNB: Registra tasa de cambio específica por reserva
+  - Fecha actual: ${new Date().toISOString().split('T')[0]}
+  - Hora actual: ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
 
-  DATOS ACTUALES DEL SISTEMA:
-  PROPIEDADES:
-  ${JSON.stringify(properties.map(p => ({ 
-    id: p.id, 
-    name: p.name, 
-    owner: p.ownerName, 
-    commission: p.commissionRate 
-  })))}
+  📋 PROPIEDADES ACTUALES (${properties.length} total):
+  ${JSON.stringify(propertiesList, null, 2)}
   
-  RESERVAS:
-  ${JSON.stringify(reservations.map(r => ({ 
-    id: r.id, 
-    propId: r.propertyId, 
-    guest: r.guestName,
-    platform: r.platform,
-    copAmount: r.totalAmount,
-    usdAmount: r.usdAmount || null,
-    exchangeRate: r.exchangeRate || null,
-    enteredAs: r.enteredAs || null,
-    dates: r.checkInDate + ' to ' + r.checkOutDate
-  })))}
+  📅 RESERVAS ACTUALES (${reservations.length} total):
+  ${JSON.stringify(reservationsList, null, 2)}
   
-  INSTRUCCIONES DE INTERACCIÓN:
-  1. Si el usuario pide una acción (agregar, borrar, editar), EJECUTA LA HERRAMIENTA correspondiente.
-  2. MUY IMPORTANTE: Cuando ejecutes una herramienta, GENERA TAMBIÉN UNA RESPUESTA DE TEXTO AMABLE confirmando la acción verbalmente.
-  3. Para reservas de Airbnb:
-     - Si el usuario no especifica la tasa de cambio, pregúntale antes de crear la reserva.
-     - Si ingresa en USD, calcula el COP automáticamente con la tasa.
-     - Si ingresa en COP, calcula el USD automáticamente con la tasa.
-     - Siempre confirma los valores calculados en tu respuesta.
-  4. Para otras plataformas (Booking, Directo), solo usa totalAmount en COP.
+  INSTRUCCIONES IMPORTANTES:
+  
+  1. IDENTIFICACIÓN DE PROPIEDADES/RESERVAS:
+     - "Propiedad 1" o "primera propiedad" → Usa number: 1
+     - "Propiedades 5 a 10" → Llama updateProperty 6 veces (numbers 5,6,7,8,9,10)
+     - "Primeras 10 propiedades" → Llama updateProperty 10 veces (numbers 1-10)
+     - "Propiedad Casa del Mar" → Busca por name: "Casa del Mar"
+  
+  2. ACTUALIZACIÓN DE CIUDAD:
+     - La herramienta updateProperty PUEDE cambiar la ciudad.
+     - Para cambiar múltiples propiedades, llama la herramienta varias veces.
+  
+  3. CONSULTA DE TASA DE CAMBIO:
+     - Si preguntan "¿Cuál es el dólar hoy?" → Usa getCurrentExchangeRate
+     - Si preguntan por tasa de cambio → Usa getCurrentExchangeRate
+  
+  4. RESPUESTAS:
+     - Para preguntas generales, responde directamente sin usar herramientas.
+     - Sé específico y detallado con los números de propiedades/reservas en tu respuesta.
 `;
 
-    // ✅ CAMBIO CRÍTICO 1: Usar gemini-2.5-flash (modelo disponible)
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-2.5-flash',
       tools: [{ 
@@ -198,7 +266,8 @@ export const sendChatMessage = async (
           deletePropertyTool, 
           addReservationTool, 
           deleteReservationTool,
-          updateReservationTool
+          updateReservationTool,
+          getExchangeRateTool  // ✅ NUEVO
         ] 
       }]
     });
@@ -216,6 +285,7 @@ export const sendChatMessage = async (
     const response = result.response;
 
     const actions: AppAction[] = [];
+    let additionalInfo = '';
     
     const functionCalls = response.functionCalls();
 
@@ -227,12 +297,35 @@ export const sendChatMessage = async (
                 case 'addProperty':
                     actions.push({ type: 'ADD_PROPERTY', payload: { ...args, id: safeId() } });
                     break;
+                    
                 case 'updateProperty':
-                    actions.push({ type: 'UPDATE_PROPERTY', payload: args });
+                    // ✅ Buscar por número o por ID
+                    let propertyToUpdate: Property | undefined;
+                    
+                    if (args.id) {
+                        // Si viene un ID directo
+                        propertyToUpdate = properties.find(p => p.id === args.id);
+                    } else if (args.number) {
+                        // Si viene un número
+                        const index = parseInt(args.number) - 1;
+                        propertyToUpdate = properties[index];
+                    }
+                    
+                    if (propertyToUpdate) {
+                        actions.push({ 
+                            type: 'UPDATE_PROPERTY', 
+                            payload: { 
+                                id: propertyToUpdate.id,
+                                ...args 
+                            } 
+                        });
+                    }
                     break;
+                    
                 case 'deleteProperty':
                     actions.push({ type: 'DELETE_PROPERTY', payload: args });
                     break;
+                    
                 case 'addReservation':
                     actions.push({ 
                         type: 'ADD_RESERVATION', 
@@ -243,11 +336,22 @@ export const sendChatMessage = async (
                         } 
                     });
                     break;
+                    
                 case 'deleteReservation':
                     actions.push({ type: 'DELETE_RESERVATION', payload: args });
                     break;
+                    
                 case 'updateReservation':
                     actions.push({ type: 'UPDATE_RESERVATION', payload: args });
+                    break;
+                    
+                // ✅ NUEVO: Consultar TRM
+                case 'getCurrentExchangeRate':
+                    const rateInfo = await getCurrentExchangeRate();
+                    additionalInfo = `\n\n💵 **Tasa de Cambio Actual (TRM):**\n` +
+                                   `- **${rateInfo.rate.toFixed(2)} COP/USD**\n` +
+                                   `- Fuente: ${rateInfo.source}\n` +
+                                   `- Fecha: ${new Date(rateInfo.date).toLocaleDateString('es-CO')}`;
                     break;
             }
         }
@@ -259,6 +363,11 @@ export const sendChatMessage = async (
         responseText = "¡Listo! He realizado los cambios correctamente.";
     } else if (!responseText.trim()) {
         responseText = "Lo siento, procesé la información pero no supe qué decir. ¿Podrías intentar de nuevo?";
+    }
+
+    // ✅ Agregar info adicional (como TRM)
+    if (additionalInfo) {
+        responseText += additionalInfo;
     }
 
     return { text: responseText, actions };
@@ -299,7 +408,8 @@ export const parseVoiceCommand = async (
      }
      const genAI = new GoogleGenerativeAI(apiKey);
 
-     const propertyList = existingProperties.map(p => ({
+     const propertyList = existingProperties.map((p, index) => ({
+        number: index + 1,
         id: p.id,
         name: p.name,
         owner: p.ownerName
@@ -335,7 +445,6 @@ export const parseVoiceCommand = async (
       - Ambos valores (totalAmount y usdAmount) calculados según la tasa
     `;
 
-    // ✅ CAMBIO CRÍTICO 2: Usar gemini-2.5-flash
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-2.5-flash',
       generationConfig: {
