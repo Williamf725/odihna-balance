@@ -30,20 +30,13 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
     platform: Platform.Direct,
     checkInDate: '',
     checkOutDate: '',
-    exchangeRate: 4200, // Tasa por defecto
-    enteredAs: 'USD' // Por defecto USD para Airbnb
+    exchangeRate: 4200,
+    enteredAs: 'USD'
   });
-
-  // Estado para controlar qué campo está editando el usuario
-  const [activeInput, setActiveInput] = useState<'COP' | 'USD'>('USD');
 
   useEffect(() => {
     if (reservationToEdit) {
       setFormData(reservationToEdit);
-      // Si está editando, detectar qué ingresó originalmente
-      if (reservationToEdit.enteredAs) {
-        setActiveInput(reservationToEdit.enteredAs);
-      }
     } else {
       setFormData({
         propertyId: properties[0]?.id || '',
@@ -56,25 +49,53 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
         exchangeRate: 4200,
         enteredAs: 'USD'
       });
-      setActiveInput('USD');
     }
   }, [reservationToEdit, isOpen, properties]);
 
-  // Calcular automáticamente el otro valor cuando cambia uno
-  useEffect(() => {
-    if (formData.platform !== Platform.Airbnb) return;
-    if (!formData.exchangeRate || formData.exchangeRate <= 0) return;
+  // Función para actualizar USD y recalcular COP
+  const handleUsdChange = (usdValue: number) => {
+    const rate = formData.exchangeRate || 4200;
+    setFormData(prev => ({
+      ...prev,
+      usdAmount: usdValue,
+      totalAmount: Math.round(usdValue * rate),
+      enteredAs: 'USD'
+    }));
+  };
 
-    if (activeInput === 'USD' && formData.usdAmount !== undefined) {
-      // Usuario ingresó USD, calcular COP
-      const calculatedCOP = formData.usdAmount * formData.exchangeRate;
-      setFormData(prev => ({ ...prev, totalAmount: Math.round(calculatedCOP) }));
-    } else if (activeInput === 'COP' && formData.totalAmount !== undefined) {
-      // Usuario ingresó COP, calcular USD
-      const calculatedUSD = formData.totalAmount / formData.exchangeRate;
-      setFormData(prev => ({ ...prev, usdAmount: parseFloat(calculatedUSD.toFixed(2)) }));
-    }
-  }, [formData.usdAmount, formData.totalAmount, formData.exchangeRate, activeInput, formData.platform]);
+  // Función para actualizar COP y recalcular USD
+  const handleCopChange = (copValue: number) => {
+    const rate = formData.exchangeRate || 4200;
+    setFormData(prev => ({
+      ...prev,
+      totalAmount: copValue,
+      usdAmount: parseFloat((copValue / rate).toFixed(2)),
+      enteredAs: 'COP'
+    }));
+  };
+
+  // Función para actualizar tasa y recalcular según lo que ingresó
+  const handleRateChange = (newRate: number) => {
+    if (newRate <= 0) return;
+
+    setFormData(prev => {
+      // Si ingresó como USD, recalcular COP
+      if (prev.enteredAs === 'USD') {
+        return {
+          ...prev,
+          exchangeRate: newRate,
+          totalAmount: Math.round((prev.usdAmount || 0) * newRate)
+        };
+      } else {
+        // Si ingresó como COP, recalcular USD
+        return {
+          ...prev,
+          exchangeRate: newRate,
+          usdAmount: parseFloat(((prev.totalAmount || 0) / newRate).toFixed(2))
+        };
+      }
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,7 +127,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
     if (formData.platform === Platform.Airbnb) {
       reservationData.usdAmount = Number(formData.usdAmount);
       reservationData.exchangeRate = Number(formData.exchangeRate);
-      reservationData.enteredAs = activeInput;
+      reservationData.enteredAs = formData.enteredAs;
     }
 
     onSave(reservationData);
@@ -171,7 +192,6 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                   setFormData({ 
                     ...formData, 
                     platform: newPlatform,
-                    // Reset Airbnb-specific fields if changing away from Airbnb
                     exchangeRate: newPlatform === Platform.Airbnb ? 4200 : undefined,
                     enteredAs: newPlatform === Platform.Airbnb ? 'USD' : undefined
                   });
@@ -192,117 +212,78 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                 Configuración Airbnb
               </div>
 
-              {/* Selector de Moneda de Ingreso */}
+              {/* Tasa de Cambio - PRIMERO */}
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">¿En qué moneda ingresas el monto?</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveInput('USD')}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                      activeInput === 'USD'
-                        ? 'bg-emerald-500 text-white shadow-lg'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
-                    }`}
-                  >
-                    💵 USD (Dólares)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveInput('COP')}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                      activeInput === 'COP'
-                        ? 'bg-blue-500 text-white shadow-lg'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
-                    }`}
-                  >
-                    💰 COP (Pesos)
-                  </button>
-                </div>
-              </div>
-
-              {/* Tasa de Cambio */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
+                <label className="block text-sm font-medium text-orange-700 mb-1 font-bold">
+                  <ArrowDownUp size={14} className="inline mr-1" />
                   Tasa de Cambio (COP por cada USD)
                 </label>
-                <div className="relative">
-                  <ArrowDownUp className="absolute left-3 top-3 text-orange-500" size={18} />
-                  <input
-                    type="number"
-                    required
-                    step="0.01"
-                    min="1"
-                    className="w-full pl-10 pr-4 py-2 bg-white border-2 border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-orange-700"
-                    value={formData.exchangeRate}
-                    onChange={e => setFormData({ ...formData, exchangeRate: Number(e.target.value) })}
-                    placeholder="ej: 4280.50"
-                  />
-                </div>
+                <input
+                  type="number"
+                  required
+                  step="0.01"
+                  min="1"
+                  className="w-full px-4 py-2 bg-white border-2 border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-orange-700"
+                  value={formData.exchangeRate}
+                  onChange={e => handleRateChange(Number(e.target.value))}
+                  placeholder="ej: 4280.50"
+                />
                 <p className="text-[10px] text-slate-500 mt-1">
-                  Ejemplo: Si 1 USD = 4,280.50 COP, ingresa 4280.50
+                  Ejemplo: Si 1 USD = 4,280.50 COP, ingresa <strong>4280.50</strong>
                 </p>
               </div>
 
-              {/* Input Principal (USD o COP según selección) */}
-              {activeInput === 'USD' ? (
+              {/* AMBOS CAMPOS VISIBLES */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Campo USD */}
                 <div>
-                  <label className="block text-xs font-medium text-emerald-700 mb-1 font-bold">
-                    💵 Monto en USD (Dólares)
+                  <label className="block text-xs font-bold text-emerald-700 mb-1">
+                    💵 Monto USD
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 text-emerald-600" size={18} />
+                    <DollarSign className="absolute left-2 top-2.5 text-emerald-600" size={16} />
                     <input
                       type="number"
                       required
                       step="0.01"
                       min="0"
-                      className="w-full pl-10 pr-4 py-3 bg-white border-2 border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-700 text-lg"
+                      className="w-full pl-8 pr-2 py-2 bg-white border-2 border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-700"
                       value={formData.usdAmount}
-                      onChange={e => {
-                        setActiveInput('USD');
-                        setFormData({ ...formData, usdAmount: Number(e.target.value) });
-                      }}
-                      placeholder="250.00"
+                      onChange={e => handleUsdChange(Number(e.target.value))}
+                      placeholder="250"
                     />
                   </div>
                 </div>
-              ) : (
+
+                {/* Campo COP */}
                 <div>
-                  <label className="block text-xs font-medium text-blue-700 mb-1 font-bold">
-                    💰 Monto en COP (Pesos)
+                  <label className="block text-xs font-bold text-blue-700 mb-1">
+                    💰 Monto COP
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 text-blue-600" size={18} />
+                    <DollarSign className="absolute left-2 top-2.5 text-blue-600" size={16} />
                     <input
                       type="number"
                       required
                       step="1"
                       min="0"
-                      className="w-full pl-10 pr-4 py-3 bg-white border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-700 text-lg"
+                      className="w-full pl-8 pr-2 py-2 bg-white border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-700"
                       value={formData.totalAmount}
-                      onChange={e => {
-                        setActiveInput('COP');
-                        setFormData({ ...formData, totalAmount: Number(e.target.value) });
-                      }}
-                      placeholder="1,070,125"
+                      onChange={e => handleCopChange(Number(e.target.value))}
+                      placeholder="1070125"
                     />
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Vista Previa del Cálculo */}
-              <div className="bg-white/80 backdrop-blur p-3 rounded-lg border border-slate-200">
-                <div className="text-xs text-slate-500 mb-1">Vista Previa:</div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-emerald-600 font-bold">USD: ${formData.usdAmount?.toFixed(2) || '0.00'}</span>
-                  <span className="text-slate-400">↔</span>
-                  <span className="text-blue-600 font-bold">
-                    COP: ${formData.totalAmount?.toLocaleString('es-CO') || '0'}
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-400 mt-1 text-center">
-                  Tasa: {formData.exchangeRate || 0} COP/USD
+              {/* Indicador visual de qué ingresó */}
+              <div className="bg-white/80 backdrop-blur p-2 rounded-lg border border-slate-200">
+                <div className="text-[10px] text-slate-500 text-center">
+                  {formData.enteredAs === 'USD' ? (
+                    <span>✏️ Último editado: <strong className="text-emerald-600">USD</strong> (COP calculado automáticamente)</span>
+                  ) : (
+                    <span>✏️ Último editado: <strong className="text-blue-600">COP</strong> (USD calculado automáticamente)</span>
+                  )}
                 </div>
               </div>
             </div>
