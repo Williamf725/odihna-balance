@@ -13,6 +13,12 @@ export enum Platform {
   Other = 'Otro'
 }
 
+// ✅ NUEVO: Tipo de reserva
+export enum ReservationType {
+  Standard = 'Standard',    // Por noche (con comisión)
+  Monthly = 'Monthly'       // Mensual (sin comisión, con gastos+pago)
+}
+
 export interface Reservation {
   id: string;
   propertyId: string;
@@ -25,10 +31,14 @@ export interface Reservation {
   notes?: string;
   paymentId?: string; // ID of the OwnerPayment record. If present, it's paid.
   
-  // ===== NUEVOS CAMPOS SOLO PARA AIRBNB =====
+  // ===== CAMPOS AIRBNB =====
   exchangeRate?: number; // Tasa COP/USD específica de esta reserva (ej: 4280.50)
   enteredAs?: 'COP' | 'USD'; // Cómo ingresó el usuario el monto originalmente
-  // ===========================================
+  
+  // ===== NUEVOS CAMPOS PARA RESERVAS MENSUALES =====
+  reservationType?: ReservationType; // Tipo de reserva (Standard o Monthly)
+  monthlyExpensesAndOwnerPay?: number; // Gastos + Pago al dueño (solo para Monthly)
+  monthsCount?: number; // Cantidad de meses calculados (solo para Monthly)
 }
 
 export interface OwnerPayment {
