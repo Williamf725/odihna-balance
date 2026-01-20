@@ -5,7 +5,8 @@ import VoiceCommandModal from './components/VoiceCommandModal';
 import PropertyModal from './components/PropertyModal';
 import ReservationModal from './components/ReservationModal';
 import PaymentsView from './components/PaymentsView'; // IMPORT NEW COMPONENT
-import { Property, Reservation, Platform, AppAction, CloudConfig, CloudStatus, OwnerPayment } from './types';
+import { Property, Reservation, Platform, AppAction, CloudConfig, CloudStatus, OwnerPayment, ReservationType } from './types';
+
 import { uploadToCloud, downloadFromCloud } from './services/cloudService';
 import { processExcelFile } from './services/excelService'; // IMPORT EXCEL SERVICE
 import { 
@@ -694,22 +695,40 @@ const getAirbnbDetails = (res: Reservation) => {
     return `${monthNames[inDate.getMonth()]} - ${inDate.getDate()} / ${monthNames[outDate.getMonth()]} - ${outDate.getDate()} / ${outDate.getFullYear()}`;
   };
 
-  const stats = useMemo(() => {
-    let totalRevenue = 0;
-    let myEarnings = 0;
-    let ownerPayouts = 0;
-    monthlyReservations.forEach(r => {
-      const prop = visibleProperties.find(p => p.id === r.propertyId);
-      if (prop) {
+ const stats = useMemo(() => {
+  let totalRevenue = 0;
+  let myEarnings = 0;
+  let ownerPayouts = 0;
+  
+  monthlyReservations.forEach(r => {
+    const prop = visibleProperties.find(p => p.id === r.propertyId);
+    if (prop) {
+      const isMonthly = r.reservationType === ReservationType.Monthly;
+      
+      if (isMonthly) {
+        // ✅ RESERVA MENSUAL
+        const monthlyTotal = r.totalAmount || 0;
+        const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
+        const myProfit = monthlyTotal - expensesAndOwnerPay;
+        
+        totalRevenue += monthlyTotal;
+        myEarnings += myProfit;
+        ownerPayouts += expensesAndOwnerPay;
+      } else {
+        // ✅ RESERVA ESTÁNDAR
         const copValue = getAirbnbCopValue(r);
         const commission = copValue * (prop.commissionRate / 100);
+        
         totalRevenue += copValue;
         myEarnings += commission;
         ownerPayouts += (copValue - commission);
       }
-    });
-    return { totalRevenue, myEarnings, ownerPayouts };
-  }, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate]);
+    }
+  });
+  
+  return { totalRevenue, myEarnings, ownerPayouts };
+}, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate]);
+
 
   const revenueByPropertyData = useMemo(() => {
       return visibleProperties.map(p => {
@@ -802,62 +821,460 @@ const getAirbnbDetails = (res: Reservation) => {
     </div>
   );
 
-  const renderProperties = () => {
-    const filteredProperties = visibleProperties.filter(p => p.name.toLowerCase().includes(propertySearch.toLowerCase()) || p.ownerName.toLowerCase().includes(propertySearch.toLowerCase()));
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-24 lg:mb-12">
-        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <h2 className="text-xl font-bold text-slate-800">{isOwner ? 'Mi Propiedad' : 'Mis Propiedades'}</h2>
-          <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:w-64"><Search className="absolute left-3 top-2.5 text-slate-400" size={18} /><input type="text" placeholder="Buscar..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" value={propertySearch} onChange={(e) => setPropertySearch(e.target.value)}/></div>
-            {isAdmin && <div className="flex gap-2"><button onClick={() => setIsVoiceModalOpen(true)} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200"><Mic size={16} /><span className="hidden sm:inline">Voz</span></button><button onClick={openNewProperty} className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700"><Plus size={16} /><span className="hidden sm:inline">Manual</span></button></div>}
+ const renderProperties = () => {
+  const filteredProperties = visibleProperties.filter(p => 
+    p.name.toLowerCase().includes(propertySearch.toLowerCase()) || 
+    p.ownerName.toLowerCase().includes(propertySearch.toLowerCase())
+  );
+  
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-24 lg:mb-12">
+      {/* Header Section */}
+      <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <h2 className="text-xl font-bold text-slate-800">
+          {isOwner ? 'Mi Propiedad' : 'Mis Propiedades'}
+        </h2>
+        
+        <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+          {/* Search Input */}
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar..." 
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" 
+              value={propertySearch} 
+              onChange={(e) => setPropertySearch(e.target.value)}
+            />
+          </div>
+          
+          {/* Action Buttons (Admin Only) */}
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setIsVoiceModalOpen(true)} 
+                className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200"
+              >
+                <Mic size={16} />
+                <span className="hidden sm:inline">Voz</span>
+              </button>
+              
+              <button 
+                onClick={openNewProperty} 
+                className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700"
+              >
+                <Plus size={16} />
+                <span className="hidden sm:inline">Manual</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Table Section */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          {/* Table Headers */}
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold">
+            <tr>
+              <th className="px-6 py-4">Nombre</th>
+              <th className="px-6 py-4">Dueño</th>
+              {isAdmin && <th className="px-6 py-4">Código Acceso</th>}
+              <th className="px-6 py-4">Ciudad</th>
+              <th className="px-6 py-4">Comisión</th>
+              {isAdmin && <th className="px-6 py-4 text-right">Acciones</th>}
+            </tr>
+          </thead>
+          
+          {/* Table Body */}
+          <tbody className="divide-y divide-slate-100">
+            {filteredProperties.map((prop) => (
+              <tr key={prop.id} className="hover:bg-slate-50/50 transition-colors">
+                {/* Property Name */}
+                <td className="px-6 py-4 font-medium text-slate-800">
+                  {prop.name}
+                </td>
+                
+                {/* Owner Name */}
+                <td className="px-6 py-4 text-slate-600">
+                  {prop.ownerName}
+                </td>
+                
+                {/* Access Code (Admin Only) */}
+                {isAdmin && (
+                  <td className="px-6 py-4">
+                    <button 
+                      onClick={() => copyToClipboard(`00${prop.id}`)} 
+                      className="flex items-center gap-2 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-mono text-slate-600 transition-colors group relative"
+                    >
+                      <span className="max-w-[100px] truncate">
+                        00{prop.id}
+                      </span>
+                      {copiedId === `00${prop.id}` ? (
+                        <Check size={12} className="text-emerald-500" />
+                      ) : (
+                        <Copy size={12} className="text-slate-400 group-hover:text-slate-600" />
+                      )}
+                    </button>
+                  </td>
+                )}
+                
+                {/* City */}
+                <td className="px-6 py-4 text-slate-600">
+                  <div className="flex items-center gap-1">
+                    <MapPin size={14} className="text-slate-400" />
+                    {prop.city}
+                  </div>
+                </td>
+                
+                {/* Commission Rate */}
+                <td className="px-6 py-4">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">
+                    {prop.commissionRate}%
+                  </span>
+                </td>
+                
+                {/* Actions (Admin Only) */}
+                {isAdmin && (
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        onClick={() => openEditProperty(prop)} 
+                        className="p-1 text-slate-400 hover:text-primary-600"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                      
+                      <button 
+                        onClick={() => deleteProperty(prop.id)} 
+                        className="p-1 text-slate-400 hover:text-red-600"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+
+ const renderReservations = () => {
+  const filteredReservations = visibleReservations.filter(res => {
+    const prop = visibleProperties.find(p => p.id === res.propertyId);
+    let match = res.guestName.toLowerCase().includes(reservationSearch.toLowerCase()) || 
+                (prop?.name || '').toLowerCase().includes(reservationSearch.toLowerCase());
+    if (dateFilterStart) match = match && res.checkInDate >= dateFilterStart;
+    if (dateFilterEnd) match = match && res.checkInDate <= dateFilterEnd;
+    return match;
+  });
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-24 lg:mb-12">
+      {/* Header Section */}
+      <div className="p-6 border-b border-slate-100 flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-slate-800">Reservas Recientes</h2>
+          <div className="flex gap-2">
+            {isAdmin && (
+              <>
+                <button 
+                  onClick={() => setIsVoiceModalOpen(true)} 
+                  className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 shadow-sm"
+                >
+                  <Mic size={16} /> 
+                  <span className="hidden sm:inline">Voz</span>
+                </button>
+                <button 
+                  onClick={openNewReservation} 
+                  className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm"
+                >
+                  <Plus size={16} /> 
+                  <span className="hidden sm:inline">Nueva</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold"><tr><th className="px-6 py-4">Nombre</th><th className="px-6 py-4">Dueño</th>{isAdmin && <th className="px-6 py-4">Código Acceso</th>}<th className="px-6 py-4">Ciudad</th><th className="px-6 py-4">Comisión</th>{isAdmin && <th className="px-6 py-4 text-right">Acciones</th>}</tr></thead><tbody className="divide-y divide-slate-100">{filteredProperties.map((prop) => (<tr key={prop.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-medium text-slate-800">{prop.name}</td><td className="px-6 py-4 text-slate-600">{prop.ownerName}</td>{isAdmin && (<td className="px-6 py-4"><button onClick={() => copyToClipboard(`00${prop.id}`)} className="flex items-center gap-2 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-mono text-slate-600 transition-colors group relative"><span className="max-w-[100px] truncate">00{prop.id}</span>{copiedId === `00${prop.id}` ? <Check size={12} className="text-emerald-500"/> : <Copy size={12} className="text-slate-400 group-hover:text-slate-600"/>}</button></td>)}<td className="px-6 py-4 text-slate-600"><div className="flex items-center gap-1"><MapPin size={14} className="text-slate-400" />{prop.city}</div></td><td className="px-6 py-4"><span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">{prop.commissionRate}%</span></td>{isAdmin && (<td className="px-6 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => openEditProperty(prop)} className="p-1 text-slate-400 hover:text-primary-600"><Pencil size={18} /></button><button onClick={() => deleteProperty(prop.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={18} /></button></div></td>)}</tr>))}</tbody></table></div>
-      </div>
-    );
-  };
-
-  const renderReservations = () => {
-    const filteredReservations = visibleReservations.filter(res => {
-      const prop = visibleProperties.find(p => p.id === res.propertyId);
-      let match = res.guestName.toLowerCase().includes(reservationSearch.toLowerCase()) || (prop?.name || '').toLowerCase().includes(reservationSearch.toLowerCase());
-      if (dateFilterStart) match = match && res.checkInDate >= dateFilterStart;
-      if (dateFilterEnd) match = match && res.checkInDate <= dateFilterEnd;
-      return match;
-    });
-
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-24 lg:mb-12">
-        <div className="p-6 border-b border-slate-100 flex flex-col gap-4">
-            <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">Reservas Recientes</h2><div className="flex gap-2">{isAdmin && <><button onClick={() => setIsVoiceModalOpen(true)} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 shadow-sm"><Mic size={16} /> <span className="hidden sm:inline">Voz</span></button><button onClick={openNewReservation} className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm"><Plus size={16} /> <span className="hidden sm:inline">Nueva</span></button></>}</div></div>
-            <div className="flex flex-col lg:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div className="relative flex-1"><Search className="absolute left-3 top-2.5 text-slate-400" size={18} /><input type="text" placeholder="Buscar..." className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm" value={reservationSearch} onChange={(e) => setReservationSearch(e.target.value)}/></div>
-                <div className="flex flex-wrap gap-2 items-center">
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200"><span className="text-xs text-slate-400 font-medium uppercase">Desde:</span><input type="date" className="text-sm focus:outline-none text-slate-600 bg-transparent" value={dateFilterStart} onChange={(e) => setDateFilterStart(e.target.value)}/></div>
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200"><span className="text-xs text-slate-400 font-medium uppercase">Hasta:</span><input type="date" className="text-sm focus:outline-none text-slate-600 bg-transparent" value={dateFilterEnd} onChange={(e) => setDateFilterEnd(e.target.value)}/></div>
-                    {(reservationSearch || dateFilterStart || dateFilterEnd) && (<button onClick={() => {setReservationSearch('');setDateFilterStart('');setDateFilterEnd('');}} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={20} /></button>)}
-                </div>
+        
+        {/* Filters */}
+        <div className="flex flex-col lg:flex-row gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar..." 
+              className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm" 
+              value={reservationSearch} 
+              onChange={(e) => setReservationSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-400 font-medium uppercase">Desde:</span>
+              <input 
+                type="date" 
+                className="text-sm focus:outline-none text-slate-600 bg-transparent" 
+                value={dateFilterStart} 
+                onChange={(e) => setDateFilterStart(e.target.value)}
+              />
             </div>
+            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-400 font-medium uppercase">Hasta:</span>
+              <input 
+                type="date" 
+                className="text-sm focus:outline-none text-slate-600 bg-transparent" 
+                value={dateFilterEnd} 
+                onChange={(e) => setDateFilterEnd(e.target.value)}
+              />
+            </div>
+            {(reservationSearch || dateFilterStart || dateFilterEnd) && (
+              <button 
+                onClick={() => {
+                  setReservationSearch('');
+                  setDateFilterStart('');
+                  setDateFilterEnd('');
+                }} 
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            )}
+          </div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold"><tr><th className="px-6 py-4">Propiedad</th><th className="px-6 py-4">Huesped</th><th className="px-6 py-4">Plataforma</th><th className="px-6 py-4">Fechas</th><th className="px-6 py-4">Monto Original</th><th className="px-6 py-4 text-right">Total (COP)</th><th className="px-6 py-4 text-center">Estado</th>{isAdmin && <th className="px-6 py-4 text-right"></th>}</tr></thead><tbody className="divide-y divide-slate-100">{filteredReservations.map((res) => { const prop = visibleProperties.find(p => p.id === res.propertyId); const copValue = getAirbnbCopValue(res); return (<tr key={res.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-6 py-4 font-medium text-slate-800">{prop?.name || 'Desconocida'}</td><td className="px-6 py-4 text-slate-600">{res.guestName}</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700'}`}>{res.platform}</span></td><td className="px-6 py-4 text-slate-500 text-sm whitespace-nowrap">{formatCustomDate(res.checkInDate, res.checkOutDate)}</td><td className="px-6 py-4 text-slate-600">{res.platform === Platform.Airbnb ? `USD $${res.usdAmount}` : formatCOP(res.totalAmount)}</td><td className="px-6 py-4 text-right font-bold text-slate-800">{formatCOP(copValue)}</td><td className="px-6 py-4 text-center">{res.paymentId ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase"><Check size={10} /> Pagado</span> : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 uppercase"><AlertTriangle size={10} /> Pendiente</span>}</td>{isAdmin && (<td className="px-6 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => openEditReservation(res)} className="p-1 text-slate-400 hover:text-primary-600"><Pencil size={16} /></button><button onClick={() => deleteReservation(res.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16} /></button></div></td>)}</tr>); })}</tbody></table></div>
       </div>
-    );
-  };
+      
+      {/* Table Section */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          {/* ✅ HEADERS ACTUALIZADOS */}
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold">
+            <tr>
+              <th className="px-6 py-4">#</th>
+              <th className="px-6 py-4">Propiedad</th>
+              <th className="px-6 py-4">Huésped</th>
+              <th className="px-6 py-4">Plataforma</th>
+              <th className="px-6 py-4">Fechas</th>
+              <th className="px-6 py-4">Monto Original</th>
+              <th className="px-6 py-4 text-right">Total (COP)</th>
+              <th className="px-6 py-4 text-center">Estado</th>
+              {isAdmin && <th className="px-6 py-4 text-right">Mi Ganancia</th>}
+              {isAdmin && <th className="px-6 py-4 text-right">Pago Dueño</th>}
+              {isAdmin && <th className="px-6 py-4 text-right">Acciones</th>}
+            </tr>
+          </thead>
+          
+          {/* ✅ TBODY COMPLETAMENTE ACTUALIZADO */}
+          <tbody className="divide-y divide-slate-100">
+            {filteredReservations.map((res, index) => { 
+              const prop = visibleProperties.find(p => p.id === res.propertyId);
+              if (!prop) return null;
+              
+              const isMonthly = res.reservationType === ReservationType.Monthly;
+              const copValue = getAirbnbCopValue(res);
+              const nights = calculateNights(res.checkInDate, res.checkOutDate);
+              
+              // ✅ Cálculo según tipo de reserva
+              let myEarning = 0;
+              let ownerPayout = 0;
+              
+              if (isMonthly) {
+                const expensesAndOwnerPay = res.monthlyExpensesAndOwnerPay || 0;
+                myEarning = res.totalAmount - expensesAndOwnerPay;
+                ownerPayout = expensesAndOwnerPay;
+              } else {
+                const commission = copValue * (prop.commissionRate / 100);
+                myEarning = commission;
+                ownerPayout = copValue - commission;
+              }
+              
+              return (
+                <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
+                  {/* # */}
+                  <td className="px-6 py-4 text-xs font-bold text-slate-400">
+                    #{index + 1}
+                  </td>
+                  
+                  {/* Propiedad con Badge Mensual */}
+                  <td className="px-6 py-4 font-medium text-slate-800">
+                    <div className="flex flex-col gap-1">
+                      <span>{prop?.name || 'Desconocida'}</span>
+                      {isMonthly && (
+                        <span className="inline-flex w-fit items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-300">
+                          📆 MENSUAL ({res.monthsCount} {res.monthsCount === 1 ? 'mes' : 'meses'})
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  
+                  {/* Huésped */}
+                  <td className="px-6 py-4 text-slate-600">
+                    {res.guestName}
+                  </td>
+                  
+                  {/* Plataforma */}
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                      res.platform === Platform.Airbnb 
+                        ? 'bg-rose-100 text-rose-700' 
+                        : 'bg-gray-100 text-gray-700'
+                    }`}>
+                      {res.platform}
+                    </span>
+                  </td>
+                  
+                  {/* Fechas */}
+                  <td className="px-6 py-4 text-slate-500 text-sm whitespace-nowrap">
+                    <div className="space-y-1">
+                      <div>{formatCustomDate(res.checkInDate, res.checkOutDate)}</div>
+                      {!isMonthly && (
+                        <div className="text-xs text-slate-400">
+                          ({nights} {nights === 1 ? 'noche' : 'noches'})
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  
+                  {/* Monto Original */}
+                  <td className="px-6 py-4 text-slate-600">
+                    {res.platform === Platform.Airbnb && !isMonthly && res.usdAmount ? (
+                      <div className="space-y-1">
+                        <div className="font-bold text-emerald-600">
+                          USD ${res.usdAmount.toFixed(2)}
+                        </div>
+                        {res.exchangeRate && (
+                          <div className="text-[10px] text-slate-400">
+                            @ {res.exchangeRate.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        {formatCOP(res.totalAmount)}
+                        {isMonthly && (
+                          <div className="text-[10px] text-purple-600 font-semibold">
+                            Valor Mensual
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  
+                  {/* Total COP */}
+                  <td className="px-6 py-4 text-right font-bold text-slate-800">
+                    {formatCOP(isMonthly ? res.totalAmount : copValue)}
+                  </td>
+                  
+                  {/* Estado */}
+                  <td className="px-6 py-4 text-center">
+                    {res.paymentId ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase">
+                        <Check size={10} /> Pagado
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 uppercase">
+                        <AlertTriangle size={10} /> Pendiente
+                      </span>
+                    )}
+                  </td>
+                  
+                  {/* ✅ MI GANANCIA (NUEVA COLUMNA - Solo Admin) */}
+                  {isAdmin && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="space-y-1">
+                        <div className="font-bold text-emerald-600">
+                          {formatCOP(myEarning)}
+                        </div>
+                        {!isMonthly && (
+                          <div className="text-xs text-slate-500">
+                            ({prop.commissionRate}% com.)
+                          </div>
+                        )}
+                        {isMonthly && (
+                          <div className="text-xs text-purple-600">
+                            (Diferencia)
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                  
+                  {/* ✅ PAGO DUEÑO (NUEVA COLUMNA - Solo Admin) */}
+                  {isAdmin && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="space-y-1">
+                        <div className="font-semibold text-orange-600">
+                          {formatCOP(ownerPayout)}
+                        </div>
+                        {isMonthly && (
+                          <div className="text-[10px] text-slate-500">
+                            (Gastos + Pago)
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                  
+                  {/* Acciones (Admin) */}
+                  {isAdmin && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => openEditReservation(res)} 
+                          className="p-1 text-slate-400 hover:text-primary-600"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button 
+                          onClick={() => deleteReservation(res.id)} 
+                          className="p-1 text-slate-400 hover:text-red-600"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 
   const renderGeneralReports = () => {
     const ownerStats: Record<string, { revenue: number, payout: number, props: string[] }> = {};
     visibleProperties.forEach(p => { if (!ownerStats[p.ownerName]) ownerStats[p.ownerName] = { revenue: 0, payout: 0, props: [] }; ownerStats[p.ownerName].props.push(p.name); });
     
-    monthlyReservations.forEach(r => { 
-        const prop = visibleProperties.find(p => p.id === r.propertyId); 
-        if (prop && ownerStats[prop.ownerName]) { 
-            const copValue = getAirbnbCopValue(r);
-            const commission = copValue * (prop.commissionRate / 100); 
-            ownerStats[prop.ownerName].revenue += copValue; 
-            ownerStats[prop.ownerName].payout += (copValue - commission); 
-        } 
-    });
+   monthlyReservations.forEach(r => { 
+  const prop = visibleProperties.find(p => p.id === r.propertyId); 
+  if (prop && ownerStats[prop.ownerName]) {
+    const isMonthly = r.reservationType === ReservationType.Monthly;
+    
+    if (isMonthly) {
+      const monthlyTotal = r.totalAmount || 0;
+      const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
+      
+      ownerStats[prop.ownerName].revenue += monthlyTotal;
+      ownerStats[prop.ownerName].payout += expensesAndOwnerPay;
+    } else {
+      const copValue = getAirbnbCopValue(r);
+      const commission = copValue * (prop.commissionRate / 100); 
+      
+      ownerStats[prop.ownerName].revenue += copValue; 
+      ownerStats[prop.ownerName].payout += (copValue - commission); 
+    }
+  } 
+});
+
 
     return (
         <div className="space-y-6 pb-24 lg:pb-12">
@@ -893,27 +1310,39 @@ const getAirbnbDetails = (res: Reservation) => {
     });
 
     relevantReservations.forEach(r => {
-        const prop = visibleProperties.find(p => p.id === r.propertyId);
-        if (prop && ownerStats[prop.ownerName]) {
-             const isPartial = r.checkInDate < rangeStart || r.checkOutDate > rangeEnd;
-             const isExcluded = excludedReservationIds.has(r.id);
-             const copValue = getAirbnbCopValue(r);
-             const commission = copValue * (prop.commissionRate / 100);
-             
-             ownerStats[prop.ownerName].reservations.push({
-                 res: r,
-                 isPartial,
-                 isExcluded,
-                 commission,
-                 calculatedCop: copValue
-             });
-
-             if (!isExcluded) {
-                 ownerStats[prop.ownerName].revenue += copValue;
-                 ownerStats[prop.ownerName].payout += (copValue - commission);
-             }
-        }
+  const prop = visibleProperties.find(p => p.id === r.propertyId);
+  if (prop && ownerStats[prop.ownerName]) {
+    const isPartial = r.checkInDate < rangeStart || r.checkOutDate > rangeEnd;
+    const isExcluded = excludedReservationIds.has(r.id);
+    const isMonthly = r.reservationType === ReservationType.Monthly;
+    
+    let copValue = 0;
+    let commission = 0;
+    
+    if (isMonthly) {
+      copValue = r.totalAmount || 0;
+      const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
+      commission = copValue - expensesAndOwnerPay;
+    } else {
+      copValue = getAirbnbCopValue(r);
+      commission = copValue * (prop.commissionRate / 100);
+    }
+    
+    ownerStats[prop.ownerName].reservations.push({ 
+      res: r, 
+      isPartial, 
+      isExcluded, 
+      commission, 
+      calculatedCop: copValue 
     });
+
+    if (!isExcluded) {
+      ownerStats[prop.ownerName].revenue += copValue;
+      ownerStats[prop.ownerName].payout += (copValue - commission);
+    }
+  }
+});
+
 
     return (
         <div className="space-y-6 pb-24 lg:pb-12">
