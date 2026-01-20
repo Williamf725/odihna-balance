@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, FunctionDeclaration, SchemaType } from "@google/generative-ai";
-import { Property, Reservation, Platform, AppAction } from "../types";
+import { Property, Reservation, Platform, AppAction, ReservationType } from "../types";
 
 // Helper for generating safe IDs inside the service
 const safeId = () => {
@@ -21,7 +21,7 @@ const getApiKey = () => {
     }
 };
 
-// ✅ NUEVO: Helper para obtener TRM actual
+// ✅ Helper para obtener TRM actual
 const getCurrentExchangeRate = async (): Promise<{ rate: number; source: string; date: string }> => {
   try {
     const response = await fetch(
@@ -65,7 +65,6 @@ const addPropertyTool: FunctionDeclaration = {
   }
 };
 
-// ✅ ACTUALIZADA: Ahora permite cambiar ciudad
 const updatePropertyTool: FunctionDeclaration = {
   name: 'updateProperty',
   description: 'Update an existing property details. Can update commission, name, owner, or city. You can update multiple properties by calling this function multiple times.',
@@ -94,9 +93,10 @@ const deletePropertyTool: FunctionDeclaration = {
   }
 };
 
+// ✅ ACTUALIZADA: Incluye reservationType y campos mensuales
 const addReservationTool: FunctionDeclaration = {
   name: 'addReservation',
-  description: 'Add a new reservation. For Airbnb reservations, include exchangeRate and enteredAs fields to track the conversion rate and currency used.',
+  description: 'Add a new reservation. Can be Standard (with commission) or Monthly (fixed expenses). For Airbnb Standard, include exchangeRate and enteredAs. For Monthly, include monthlyExpensesAndOwnerPay.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -104,13 +104,20 @@ const addReservationTool: FunctionDeclaration = {
       guestName: { type: SchemaType.STRING, description: 'Name of the guest' },
       checkInDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
       checkOutDate: { type: SchemaType.STRING, description: 'YYYY-MM-DD format' },
-      totalAmount: { type: SchemaType.NUMBER, description: 'Total amount in COP. For Airbnb, this is calculated based on USD and exchange rate.' },
-      usdAmount: { type: SchemaType.NUMBER, description: 'Amount in USD (only for Airbnb reservations)' },
+      totalAmount: { type: SchemaType.NUMBER, description: 'Total amount in COP. For Monthly, this is the monthly rent value.' },
       platform: { type: SchemaType.STRING, description: 'Platform: Airbnb, Booking, Directo, or Otro' },
-      exchangeRate: { type: SchemaType.NUMBER, description: 'COP/USD exchange rate (only for Airbnb). Example: 4280.50 means 1 USD = 4280.50 COP' },
-      enteredAs: { type: SchemaType.STRING, description: 'How the amount was entered: "COP" or "USD" (only for Airbnb)' }
+      reservationType: { type: SchemaType.STRING, description: 'Standard or Monthly. Default is Standard.' },
+      
+      // Campos para Standard Airbnb
+      usdAmount: { type: SchemaType.NUMBER, description: 'Amount in USD (only for Airbnb Standard)' },
+      exchangeRate: { type: SchemaType.NUMBER, description: 'COP/USD exchange rate (only for Airbnb Standard)' },
+      enteredAs: { type: SchemaType.STRING, description: 'COP or USD (only for Airbnb Standard)' },
+      
+      // Campos para Monthly
+      monthlyExpensesAndOwnerPay: { type: SchemaType.NUMBER, description: 'Expenses + owner payment (only for Monthly reservations)' },
+      monthsCount: { type: SchemaType.NUMBER, description: 'Number of months (calculated automatically for Monthly)' }
     },
-    required: ['propertyId', 'guestName', 'checkInDate', 'checkOutDate', 'platform']
+    required: ['propertyId', 'guestName', 'checkInDate', 'checkOutDate', 'platform', 'totalAmount']
   }
 };
 
@@ -126,9 +133,10 @@ const deleteReservationTool: FunctionDeclaration = {
   }
 };
 
+// ✅ ACTUALIZADA: Incluye campos mensuales
 const updateReservationTool: FunctionDeclaration = {
     name: 'updateReservation',
-    description: 'Update an existing reservation. For Airbnb, you can update exchangeRate and amounts.',
+    description: 'Update an existing reservation. Can update amounts, exchange rates, or monthly expenses.',
     parameters: {
         type: SchemaType.OBJECT,
         properties: {
@@ -138,16 +146,16 @@ const updateReservationTool: FunctionDeclaration = {
             guestName: { type: SchemaType.STRING, description: 'New guest name' },
             notes: { type: SchemaType.STRING, description: 'Additional notes' },
             exchangeRate: { type: SchemaType.NUMBER, description: 'New exchange rate (for Airbnb)' },
-            enteredAs: { type: SchemaType.STRING, description: 'Updated entry method: COP or USD (for Airbnb)' }
+            enteredAs: { type: SchemaType.STRING, description: 'COP or USD' },
+            monthlyExpensesAndOwnerPay: { type: SchemaType.NUMBER, description: 'New expenses + owner pay (for Monthly)' }
         },
         required: ['id']
     }
 };
 
-// ✅ NUEVO: Herramienta para consultar TRM
 const getExchangeRateTool: FunctionDeclaration = {
   name: 'getCurrentExchangeRate',
-  description: 'Get the current official TRM (exchange rate COP/USD) from Banco de la República de Colombia. Use this when user asks about current dollar price or exchange rate.',
+  description: 'Get the current official TRM (exchange rate COP/USD) from Banco de la República de Colombia.',
   parameters: {
     type: SchemaType.OBJECT,
     properties: {},
@@ -167,13 +175,13 @@ export const sendChatMessage = async (
     const apiKey = getApiKey();
     if (!apiKey) {
         return { 
-            text: "Error de Configuración: No se encontró la variable VITE_API_KEY. Por favor agrégala en Vercel en Settings > Environment Variables.", 
+            text: "Error de Configuración: No se encontró la variable VITE_API_KEY. Por favor agrégala en Vercel.", 
             actions: [] 
         };
     }
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // ✅ MEJORADO: Lista numerada de propiedades y reservas
+    // ✅ Lista numerada de propiedades y reservas
     const propertiesList = properties.map((p, index) => ({
       number: index + 1,
       id: p.id,
@@ -189,10 +197,12 @@ export const sendChatMessage = async (
       propertyId: r.propertyId,
       guest: r.guestName,
       platform: r.platform,
+      type: r.reservationType || 'Standard',
       copAmount: r.totalAmount,
       usdAmount: r.usdAmount || null,
       exchangeRate: r.exchangeRate || null,
-      enteredAs: r.enteredAs || null,
+      monthlyExpenses: r.monthlyExpensesAndOwnerPay || null,
+      monthsCount: r.monthsCount || null,
       dates: `${r.checkInDate} to ${r.checkOutDate}`
     }));
 
@@ -201,60 +211,66 @@ export const sendChatMessage = async (
   
   PERSONALIDAD:
   - Eres amable, profesional, proactivo y entusiasta.
-  - Además de ayudar con la gestión de alquileres, puedes:
-    * Responder preguntas generales de negocios, finanzas, y matemáticas
-    * Hacer cálculos matemáticos
-    * Consultar la tasa de cambio oficial actual (TRM)
-    * Dar consejos sobre gestión de propiedades
+  - Ayudas con gestión de alquileres, cálculos, y consultas generales.
+  
+  TIPOS DE RESERVAS:
+  
+  1. RESERVAS ESTÁNDAR (Standard):
+     - Por noche/corto plazo
+     - Se cobra comisión según el porcentaje de la propiedad
+     - Para Airbnb: registra tasa de cambio USD/COP específica
+     - Cálculo: Mi ganancia = totalAmount × (commissionRate / 100)
+  
+  2. RESERVAS MENSUALES (Monthly):
+     - Arriendos por uno o más meses
+     - NO usan comisión porcentual
+     - El usuario ingresa:
+       * totalAmount: Valor mensual total de la reserva
+       * monthlyExpensesAndOwnerPay: Gastos + lo que paga al dueño
+     - Cálculo: Mi ganancia = totalAmount - monthlyExpensesAndOwnerPay
+     - Se calcula automáticamente la cantidad de meses entre fechas
   
   CAPACIDADES:
   
-  1. GESTIÓN DE PROPIEDADES Y RESERVAS:
-     - Cuando el usuario mencione "propiedad número X" o "las primeras 10", usa el campo "number".
-     - Cuando mencione "propiedad [nombre]", busca por el campo "name".
-     - Puedes actualizar CUALQUIER campo: nombre, dueño, ciudad, comisión.
-     - Para actualizar múltiples propiedades, llama a updateProperty varias veces.
+  1. GESTIÓN:
+     - Identificar por número: "propiedad 1", "reserva 5", "primeras 10"
+     - Identificar por nombre: "Casa del Mar"
+     - Actualizar cualquier campo (ciudad, comisión, nombre, etc.)
   
   2. CONSULTAS Y CÁLCULOS:
-     - Haz cálculos matemáticos cuando te lo pidan.
-     - Responde preguntas sobre negocios y finanzas.
-     - Si preguntan por el dólar/TRM actual, usa la herramienta getCurrentExchangeRate.
+     - Cálculos matemáticos
+     - Preguntas de negocios/finanzas
+     - Consultar TRM actual (usa getCurrentExchangeRate)
   
-  3. LIMITACIONES:
-     - NO puedes editar fechas de reservas (solo montos, huésped, notas).
-     - NO tienes acceso a clima, noticias recientes, o eventos específicos.
-  
-  CONTEXTO TÉCNICO:
-  - Moneda principal: Pesos Colombianos (COP)
-  - Para reservas de AIRBNB: Registra tasa de cambio específica por reserva
-  - Fecha actual: ${new Date().toISOString().split('T')[0]}
-  - Hora actual: ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+  FECHA Y HORA ACTUAL:
+  - ${new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+  - ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
 
-  📋 PROPIEDADES ACTUALES (${properties.length} total):
+  📋 PROPIEDADES (${properties.length} total):
   ${JSON.stringify(propertiesList, null, 2)}
   
-  📅 RESERVAS ACTUALES (${reservations.length} total):
+  📅 RESERVAS (${reservations.length} total):
   ${JSON.stringify(reservationsList, null, 2)}
   
-  INSTRUCCIONES IMPORTANTES:
+  INSTRUCCIONES:
   
-  1. IDENTIFICACIÓN DE PROPIEDADES/RESERVAS:
-     - "Propiedad 1" o "primera propiedad" → Usa number: 1
-     - "Propiedades 5 a 10" → Llama updateProperty 6 veces (numbers 5,6,7,8,9,10)
-     - "Primeras 10 propiedades" → Llama updateProperty 10 veces (numbers 1-10)
-     - "Propiedad Casa del Mar" → Busca por name: "Casa del Mar"
+  1. Para CREAR/EDITAR reservas mensuales:
+     - Usa reservationType: "Monthly"
+     - Solicita: totalAmount y monthlyExpensesAndOwnerPay
+     - NO uses exchangeRate ni usdAmount (solo para Airbnb Standard)
   
-  2. ACTUALIZACIÓN DE CIUDAD:
-     - La herramienta updateProperty PUEDE cambiar la ciudad.
-     - Para cambiar múltiples propiedades, llama la herramienta varias veces.
+  2. Para CREAR/EDITAR reservas estándar de Airbnb:
+     - Usa reservationType: "Standard"
+     - Solicita: usdAmount, exchangeRate, enteredAs
   
-  3. CONSULTA DE TASA DE CAMBIO:
-     - Si preguntan "¿Cuál es el dólar hoy?" → Usa getCurrentExchangeRate
-     - Si preguntan por tasa de cambio → Usa getCurrentExchangeRate
+  3. IDENTIFICACIÓN:
+     - "Propiedad 1" → Usa propertiesList[0].id
+     - "Reserva mensual 3" → Busca en reservationsList donde type = "Monthly"
   
   4. RESPUESTAS:
-     - Para preguntas generales, responde directamente sin usar herramientas.
-     - Sé específico y detallado con los números de propiedades/reservas en tu respuesta.
+     - Confirma acciones verbalmente
+     - Para preguntas generales, responde sin usar herramientas
+     - Sé específico con números y nombres en tu respuesta
 `;
 
     const model = genAI.getGenerativeModel({ 
@@ -267,7 +283,7 @@ export const sendChatMessage = async (
           addReservationTool, 
           deleteReservationTool,
           updateReservationTool,
-          getExchangeRateTool  // ✅ NUEVO
+          getExchangeRateTool
         ] 
       }]
     });
@@ -299,14 +315,11 @@ export const sendChatMessage = async (
                     break;
                     
                 case 'updateProperty':
-                    // ✅ Buscar por número o por ID
                     let propertyToUpdate: Property | undefined;
                     
                     if (args.id) {
-                        // Si viene un ID directo
                         propertyToUpdate = properties.find(p => p.id === args.id);
                     } else if (args.number) {
-                        // Si viene un número
                         const index = parseInt(args.number) - 1;
                         propertyToUpdate = properties[index];
                     }
@@ -332,7 +345,8 @@ export const sendChatMessage = async (
                         payload: { 
                             ...args, 
                             id: safeId(), 
-                            platform: args.platform || 'Directo'
+                            platform: args.platform || 'Directo',
+                            reservationType: args.reservationType || ReservationType.Standard
                         } 
                     });
                     break;
@@ -345,7 +359,6 @@ export const sendChatMessage = async (
                     actions.push({ type: 'UPDATE_RESERVATION', payload: args });
                     break;
                     
-                // ✅ NUEVO: Consultar TRM
                 case 'getCurrentExchangeRate':
                     const rateInfo = await getCurrentExchangeRate();
                     additionalInfo = `\n\n💵 **Tasa de Cambio Actual (TRM):**\n` +
@@ -365,7 +378,6 @@ export const sendChatMessage = async (
         responseText = "Lo siento, procesé la información pero no supe qué decir. ¿Podrías intentar de nuevo?";
     }
 
-    // ✅ Agregar info adicional (como TRM)
     if (additionalInfo) {
         responseText += additionalInfo;
     }
@@ -377,13 +389,13 @@ export const sendChatMessage = async (
     
     let userMsg = "Lo siento, tuve problemas para conectar con el servidor de IA.";
     if (error.message?.includes("403")) {
-        userMsg += " (Error de Permisos/API Key inválida - verifica que VITE_API_KEY esté configurada en Vercel)";
+        userMsg += " (Error de Permisos/API Key inválida)";
     }
     if (error.message?.includes("404")) {
-        userMsg += " (Modelo no encontrado - el modelo gemini-2.5-flash debería estar disponible. Verifica tu API key)";
+        userMsg += " (Modelo no encontrado)";
     }
     if (error.message?.includes("429")) {
-        userMsg += " (Límite de cuota excedido - espera un momento antes de reintentar)";
+        userMsg += " (Límite de cuota excedido)";
     }
     
     return { text: userMsg + " Verifica la consola para más detalles.", actions: [] };
@@ -417,32 +429,45 @@ export const parseVoiceCommand = async (
     
     const prompt = `
       Analiza el siguiente texto: "${text}".
-      Moneda: Pesos Colombianos (COP), o Dolares (USD) si es Airbnb.
       Propiedades Existentes: ${JSON.stringify(propertyList)}.
       
       TAREA: Extraer datos para crear una propiedad o una reserva.
       
       Devuelve SOLO un objeto JSON:
       1. Propiedad: { "actionType": "create_property", "propertyData": { "name": "...", "ownerName": "...", "city": "...", "commissionRate": 15 } }
-      2. Reserva: { 
+      2. Reserva Standard: { 
            "actionType": "create_reservation", 
            "reservationData": { 
              "propertyId": "ID", 
              "guestName": "...", 
              "totalAmount": 0, 
-             "usdAmount": 0, 
              "platform": "Airbnb|Booking|Directo", 
              "checkInDate": "YYYY-MM-DD", 
              "checkOutDate": "YYYY-MM-DD",
+             "reservationType": "Standard",
+             "usdAmount": 0,
              "exchangeRate": 4200,
              "enteredAs": "USD"
            } 
          }
+      3. Reserva Mensual: {
+           "actionType": "create_reservation",
+           "reservationData": {
+             "propertyId": "ID",
+             "guestName": "...",
+             "totalAmount": 1000000,
+             "platform": "Directo",
+             "checkInDate": "YYYY-MM-DD",
+             "checkOutDate": "YYYY-MM-DD",
+             "reservationType": "Monthly",
+             "monthlyExpensesAndOwnerPay": 800000
+           }
+         }
       
-      Si es Airbnb, intenta detectar:
-      - La tasa de cambio (exchangeRate) si se menciona
-      - Si el monto está en USD o COP (enteredAs)
-      - Ambos valores (totalAmount y usdAmount) calculados según la tasa
+      Detecta si es:
+      - Mensual: Palabras clave "mensual", "arriendo", "mes", "meses"
+      - Airbnb Standard: Menciona USD o dólares
+      - Standard normal: Resto de casos
     `;
 
     const model = genAI.getGenerativeModel({ 
