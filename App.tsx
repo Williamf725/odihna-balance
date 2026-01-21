@@ -117,6 +117,9 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
+  // ✅ NUEVO: Estados para recálculo de tasa Airbnb en reportes personalizados
+const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
+const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
 
   // Editing State
   const [editingProperty, setEditingProperty] = useState<Property | undefined>(undefined);
