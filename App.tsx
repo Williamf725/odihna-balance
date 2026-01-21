@@ -1451,9 +1451,7 @@ const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
 
   const renderCustomReports = () => {
     const rangeStart = customStartDate;
-    // ✅ NUEVO: Estados para recálculo de tasa Airbnb
-const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
-const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
+   
 
     const rangeEnd = customEndDate;
 
