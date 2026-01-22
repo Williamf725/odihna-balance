@@ -117,10 +117,13 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
+  // ✅ NUEVO: Control de tasa para liquidación final
+const [useLiquidationRate, setUseLiquidationRate] = useState(false);
+const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
   // ✅ NUEVO: Estados para recálculo de tasa Airbnb en reportes personalizados
 const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
 const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
-
+ 
   // Editing State
   const [editingProperty, setEditingProperty] = useState<Property | undefined>(undefined);
   const [editingReservation, setEditingReservation] = useState<Reservation | undefined>(undefined);
@@ -507,6 +510,61 @@ const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
   };
 };
 
+  // ✅✅✅ AQUÍ VA EL PASO 2 (NUEVA FUNCIÓN) ✅✅✅
+// NUEVO: Calcula la liquidación final con tasa personalizada
+const calculateLiquidation = (ownerStats: Record<string, any>) => {
+  if (!useLiquidationRate) return null;
+
+  const liquidationRate = liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate;
+  const result: Record<string, {
+    originalPayout: number;
+    liquidationPayout: number;
+    difference: number;
+    airbnbCount: number;
+  }> = {};
+
+  Object.entries(ownerStats).forEach(([owner, data]: [string, any]) => {
+    let originalPayout = 0;
+    let liquidationPayout = 0;
+    let airbnbCount = 0;
+
+    data.reservations.forEach((item: any) => {
+      if (item.isExcluded) return;
+
+      const res = item.res;
+      const prop = visibleProperties.find(p => p.id === res.propertyId);
+      if (!prop) return;
+
+      // Solo procesar Airbnb con USD
+      if (res.platform === Platform.Airbnb && res.usdAmount) {
+        airbnbCount++;
+
+        // Cálculo con tasa ORIGINAL
+        const originalCOP = res.usdAmount * (res.exchangeRate || 0);
+        const commission = originalCOP * (prop.commissionRate / 100);
+        originalPayout += (originalCOP - commission);
+
+        // Cálculo con tasa de LIQUIDACIÓN
+        const liquidationCOP = res.usdAmount * liquidationRate;
+        const liquidationCommission = liquidationCOP * (prop.commissionRate / 100);
+        liquidationPayout += (liquidationCOP - liquidationCommission);
+      } else {
+        // Para no-Airbnb, usar valor original (sin cambios)
+        originalPayout += item.calculatedCop - item.commission;
+        liquidationPayout += item.calculatedCop - item.commission;
+      }
+    });
+
+    result[owner] = {
+      originalPayout,
+      liquidationPayout,
+      difference: liquidationPayout - originalPayout,
+      airbnbCount
+    };
+  });
+
+  return result;
+};
 
   const handleSaveProperty = (prop: Property) => {
     setSaveState('pending'); // Immediate feedback
@@ -1449,234 +1507,428 @@ const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
     );
   };
 
-  const renderCustomReports = () => {
-    const rangeStart = customStartDate;
-   
+ const renderCustomReports = () => {
+  const rangeStart = customStartDate;
+  const rangeEnd = customEndDate;
 
-    const rangeEnd = customEndDate;
+  const relevantReservations = visibleReservations.filter(r => {
+    if (!rangeStart || !rangeEnd) return false;
+    return r.checkInDate <= rangeEnd && r.checkOutDate >= rangeStart;
+  });
 
-    const relevantReservations = visibleReservations.filter(r => {
-        if (!rangeStart || !rangeEnd) return false;
-        return r.checkInDate <= rangeEnd && r.checkOutDate >= rangeStart;
-    });
+  const ownerStats: Record<string, { 
+    revenue: number, 
+    payout: number, 
+    props: string[], 
+    reservations: { 
+      res: Reservation, 
+      isPartial: boolean, 
+      isExcluded: boolean, 
+      commission: number, 
+      calculatedCop: number,
+      recalcData?: ReturnType<typeof recalculateAirbnbPayout>
+    }[] 
+  }> = {};
 
-    const ownerStats: Record<string, { 
-  revenue: number, 
-  payout: number, 
-  props: string[], 
-  reservations: { 
-    res: Reservation, 
-    isPartial: boolean, 
-    isExcluded: boolean, 
-    commission: number, 
-    calculatedCop: number,
-    recalcData?: ReturnType<typeof recalculateAirbnbPayout> // ✅ AGREGAR ESTA LÍNEA
-  }[] 
-}> = {};
+  visibleProperties.forEach(p => { 
+    if (!ownerStats[p.ownerName]) ownerStats[p.ownerName] = { revenue: 0, payout: 0, props: [], reservations: [] }; 
+    if (!ownerStats[p.ownerName].props.includes(p.name)) ownerStats[p.ownerName].props.push(p.name); 
+  });
 
+  relevantReservations.forEach(r => {
+    const prop = visibleProperties.find(p => p.id === r.propertyId);
+    if (prop && ownerStats[prop.ownerName]) {
+      const isPartial = r.checkInDate < rangeStart || r.checkOutDate > rangeEnd;
+      const isExcluded = excludedReservationIds.has(r.id);
+      const isMonthly = r.reservationType === ReservationType.Monthly;
 
-    visibleProperties.forEach(p => { 
-        if (!ownerStats[p.ownerName]) ownerStats[p.ownerName] = { revenue: 0, payout: 0, props: [], reservations: [] }; 
-        if (!ownerStats[p.ownerName].props.includes(p.name)) ownerStats[p.ownerName].props.push(p.name); 
-    });
+      let copValue = 0;
+      let commission = 0;
+      let recalcData = null;
 
-    relevantReservations.forEach(r => {
-  const prop = visibleProperties.find(p => p.id === r.propertyId);
-  if (prop && ownerStats[prop.ownerName]) {
-    const isPartial = r.checkInDate < rangeStart || r.checkOutDate > rangeEnd;
-    const isExcluded = excludedReservationIds.has(r.id);
-    const isMonthly = r.reservationType === ReservationType.Monthly;
-
-    let copValue = 0;
-    let commission = 0;
-    let recalcData = null; // ✅ NUEVO
-
-    if (isMonthly) {
-      copValue = r.totalAmount || 0;
-      const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
-      commission = copValue - expensesAndOwnerPay;
-    } else {
-      copValue = getAirbnbCopValue(r);
-      commission = copValue * (prop.commissionRate / 100);
-      
-      // ✅ NUEVO: Calcular recálculo si está activado
-      if (useCustomRateForPayouts && r.platform === Platform.Airbnb && r.usdAmount) {
-        recalcData = recalculateAirbnbPayout(r, prop);
-      }
-    }
-
-    ownerStats[prop.ownerName].reservations.push({
-      res: r,
-      isPartial,
-      isExcluded,
-      commission,
-      calculatedCop: copValue,
-      recalcData // ✅ NUEVO
-    });
-
-    if (!isExcluded) {
-      // ✅ NUEVO: Si hay recálculo, usar valores recalculados
-      if (recalcData && useCustomRateForPayouts) {
-        ownerStats[prop.ownerName].revenue += recalcData.originalCOP;
-        ownerStats[prop.ownerName].payout += recalcData.ownerPayoutRecalculated;
+      if (isMonthly) {
+        copValue = r.totalAmount || 0;
+        const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
+        commission = copValue - expensesAndOwnerPay;
       } else {
-        ownerStats[prop.ownerName].revenue += copValue;
-        ownerStats[prop.ownerName].payout += (copValue - commission);
+        copValue = getAirbnbCopValue(r);
+        commission = copValue * (prop.commissionRate / 100);
+        
+        if (useCustomRateForPayouts && r.platform === Platform.Airbnb && r.usdAmount) {
+          recalcData = recalculateAirbnbPayout(r, prop);
+        }
+      }
+
+      ownerStats[prop.ownerName].reservations.push({
+        res: r,
+        isPartial,
+        isExcluded,
+        commission,
+        calculatedCop: copValue,
+        recalcData
+      });
+
+      if (!isExcluded) {
+        if (recalcData && useCustomRateForPayouts) {
+          ownerStats[prop.ownerName].revenue += recalcData.originalCOP;
+          ownerStats[prop.ownerName].payout += recalcData.ownerPayoutRecalculated;
+        } else {
+          ownerStats[prop.ownerName].revenue += copValue;
+          ownerStats[prop.ownerName].payout += (copValue - commission);
+        }
       }
     }
-  }
-});
+  });
 
+  // ✅ Calcular liquidación con tasa personalizada
+  const liquidation = calculateLiquidation(ownerStats);
 
-
-    return (
-        <div className="space-y-6 pb-24 lg:pb-12">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Filter size={20} className="text-primary-500" /> Filtros de Fecha</h3>
-                <div className="flex flex-col sm:flex-row gap-4 items-end">
-                    <div className="w-full sm:w-auto">
-                        <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Inicio</label>
-                        <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none text-slate-700 shadow-sm" />
-                    </div>
-                    <div className="w-full sm:w-auto">
-                        <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Fin</label>
-                        <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none text-slate-700 shadow-sm" />
-                    </div>
-                    <div className="w-full sm:w-auto pb-1 text-xs text-slate-400">
-                        * Incluye reservas que se crucen con estas fechas.
-                    </div>
-                </div>
-            </div>
-
-            {(!customStartDate || !customEndDate) ? (
-                 <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                    <CalendarRange size={48} className="mx-auto mb-2 opacity-20" />
-                    <p>Selecciona un rango de fechas para generar el reporte.</p>
-                 </div>
-            ) : (
-                <div className="grid grid-cols-1 gap-8">
-                     {Object.entries(ownerStats).map(([owner, data]) => {
-                         if (data.reservations.length === 0) return null;
-                         return (
-                            <div key={owner} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                                <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
-                                    <div>
-                                        <h3 className="font-bold text-lg text-slate-800">{owner}</h3>
-                                        <div className="flex gap-2 text-xs text-slate-500 mt-1">
-                                            {data.props.map(p => <span key={p} className="bg-white border border-slate-200 px-2 py-0.5 rounded flex items-center gap-1"><Building2 size={10}/> {p}</span>)}
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-xs text-slate-500">A Pagar (COP)</p>
-                                        <p className="text-2xl font-bold text-primary-600">{formatCOP(data.payout)}</p>
-                                    </div>
-                                </div>
-                                
-                                <div className="p-0 overflow-x-auto">
-                                    <table className="w-full text-left text-sm">
-                                        <thead className="bg-white text-slate-500 border-b border-slate-100">
-                                            <tr>
-                                                <th className="px-4 py-3 font-medium">Huesped / Plat.</th>
-                                                <th className="px-4 py-3 font-medium">Fechas</th>
-                                                <th className="px-4 py-3 font-medium text-right">Monto</th>
-                                                {isAdmin && <th className="px-4 py-3 font-medium text-right text-red-400">Comisión</th>}
-                                                <th className="px-4 py-3 font-medium text-center">Estado</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-50">
-                                            {data.reservations.map((item, idx) => (
-                                                <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>
-                                                    <td className="px-4 py-3 font-medium text-slate-700">
-                                                        <div className="flex flex-col">
-                                                            <span>{item.res.guestName}</span>
-                                                            <span className={`text-[10px] w-fit px-1 rounded font-bold uppercase ${item.res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>{item.res.platform}</span>
-                                                        </div>
-                                                        {item.isPartial && <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200"><AlertTriangle size={10} className="mr-1"/> Conflicto de fechas</span>}
-                                                    </td>
-                                                    <td className={`px-4 py-3 text-right ${item.isExcluded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-    <div className="flex flex-col">
-        <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
-        
-        {/* Detalles Airbnb */}
-        {item.res.platform === Platform.Airbnb && (
-            <div className="text-[10px] space-y-0.5 mt-1">
-                {/* Monto original como fue ingresado */}
-                {item.res.enteredAs === 'COP' ? (
-                    <>
-                        <div className="text-blue-600 font-bold">💵 Ingresado: {formatCOP(item.res.totalAmount)}</div>
-                        <div className="text-emerald-600">→ USD ${item.res.usdAmount?.toFixed(2)} @ {item.res.exchangeRate}</div>
-                    </>
-                ) : (
-                    <>
-                        <div className="text-emerald-600 font-bold">💵 Ingresado: USD ${item.res.usdAmount}</div>
-                        <div className="text-blue-600">→ Tasa: {item.res.exchangeRate} COP/USD</div>
-                    </>
-                )}
-                
-                {/* ✅ NUEVO: Panel de Recálculo */}
-                {item.recalcData && useCustomRateForPayouts && (
-                    <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded space-y-1">
-                        <div className="font-semibold text-purple-700 text-[9px] uppercase tracking-wide">
-                            🔄 Recálculo de Pago
-                        </div>
-                        <div className="text-purple-600 font-medium">
-                            USD ${item.recalcData.usdAmount.toFixed(2)} @ {item.recalcData.payoutRate.toFixed(2)}
-                        </div>
-                        <div className="text-purple-700 font-bold">
-                            = {formatCOP(item.recalcData.recalculatedCOP)}
-                        </div>
-                        {item.recalcData.rateDifference !== 0 && (
-                            <div className={`text-[9px] font-semibold flex items-center gap-1 ${
-                                item.recalcData.rateDifference > 0 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                                <span>{item.recalcData.rateDifference > 0 ? '↗' : '↘'}</span>
-                                <span>
-                                    {item.recalcData.rateDifference > 0 ? 'Ganancia' : 'Pérdida'}: {formatCOP(Math.abs(item.recalcData.rateDifference))}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-        )}
-    </div>
-</td>
-
-                                                    {isAdmin && (
-                                                        <td className={`px-4 py-3 text-right font-mono text-xs ${item.isExcluded ? 'line-through text-slate-300' : 'text-red-500'}`}>
-                                                            -{formatCOP(item.commission)}
-                                                        </td>
-                                                    )}
-                                                    <td className="px-4 py-3 text-center">
-                                                        {item.isPartial ? (
-                                                            <button 
-                                                                onClick={() => toggleReservationExclusion(item.res.id)}
-                                                                className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                                                                    item.isExcluded 
-                                                                    ? 'bg-slate-200 text-slate-500 hover:bg-slate-300' 
-                                                                    : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                                                }`}
-                                                            >
-                                                                {item.isExcluded ? <Square size={14} /> : <CheckSquare size={14} />}
-                                                                {item.isExcluded ? 'Excluido' : 'Incluido'}
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-xs text-emerald-600 font-medium flex justify-center gap-1"><Check size={14}/> Auto</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                         );
-                     })}
-                </div>
-            )}
+  return (
+    <div className="space-y-6 pb-24 lg:pb-12">
+      {/* Panel de Filtros de Fecha */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Filter size={20} className="text-primary-500" /> Filtros de Fecha
+        </h3>
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
+          <div className="w-full sm:w-auto">
+            <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Inicio</label>
+            <input 
+              type="date" 
+              value={customStartDate} 
+              onChange={(e) => setCustomStartDate(e.target.value)} 
+              className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none text-slate-700 shadow-sm" 
+            />
+          </div>
+          <div className="w-full sm:w-auto">
+            <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Fin</label>
+            <input 
+              type="date" 
+              value={customEndDate} 
+              onChange={(e) => setCustomEndDate(e.target.value)} 
+              className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none text-slate-700 shadow-sm" 
+            />
+          </div>
+          <div className="w-full sm:w-auto pb-1 text-xs text-slate-400">
+            * Incluye reservas que se crucen con estas fechas.
+          </div>
         </div>
-    );
-  };
+      </div>
+
+      {/* ✅ NUEVO: Panel de Liquidación con Tasa Personalizada */}
+      {isAdmin && (
+        <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border-2 border-blue-300 shadow-lg">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="p-3 bg-blue-600 text-white rounded-xl shadow-md">
+              <DollarSign size={24} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                💰 Liquidación Final con Tasa Personalizada
+              </h3>
+              <p className="text-sm text-slate-600 mt-1">
+                Calcula el pago final a dueños usando una tasa de cambio diferente (solo afecta reservas Airbnb en USD)
+              </p>
+            </div>
+          </div>
+
+          {/* Toggle Principal */}
+          <div className="bg-white rounded-xl p-4 shadow-sm border-2 border-blue-200 mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={useLiquidationRate}
+                onChange={(e) => setUseLiquidationRate(e.target.checked)}
+                className="w-6 h-6 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <div className="flex-1">
+                <div className="font-bold text-slate-800 text-base">
+                  Activar Cálculo de Liquidación
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Los valores originales no se modifican. Solo se recalcula el pago final.
+                </div>
+              </div>
+            </label>
+          </div>
+
+          {/* Selector de Tasa */}
+          {useLiquidationRate && (
+            <div className="space-y-3 animate-fade-in">
+              <label className="block text-sm font-bold text-slate-700 mb-3">
+                📊 Selecciona la tasa para liquidación final:
+              </label>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Opción Manual */}
+                <button
+                  onClick={() => setLiquidationRateType('manual')}
+                  className={`group p-5 rounded-xl border-2 transition-all text-left ${
+                    liquidationRateType === 'manual'
+                      ? 'border-purple-500 bg-purple-50 shadow-lg scale-105'
+                      : 'border-slate-200 bg-white hover:border-purple-300 hover:shadow-md'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                      liquidationRateType === 'manual' 
+                        ? 'border-purple-600 bg-purple-600 scale-110' 
+                        : 'border-slate-300 group-hover:border-purple-400'
+                    }`}>
+                      {liquidationRateType === 'manual' && (
+                        <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-bold text-slate-800 text-lg">🎯 Tasa Manual</span>
+                  </div>
+                  <div className="text-3xl font-bold text-purple-600 mb-2">
+                    ${manualExchangeRate.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-slate-500 font-medium">
+                    COP por cada USD (configurado por ti)
+                  </div>
+                </button>
+
+                {/* Opción TRM */}
+                <button
+                  onClick={() => setLiquidationRateType('trm')}
+                  className={`group p-5 rounded-xl border-2 transition-all text-left ${
+                    liquidationRateType === 'trm'
+                      ? 'border-blue-500 bg-blue-50 shadow-lg scale-105'
+                      : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                      liquidationRateType === 'trm' 
+                        ? 'border-blue-600 bg-blue-600 scale-110' 
+                        : 'border-slate-300 group-hover:border-blue-400'
+                    }`}>
+                      {liquidationRateType === 'trm' && (
+                        <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-bold text-slate-800 text-lg">🏛️ TRM Oficial</span>
+                  </div>
+                  <div className="text-3xl font-bold text-blue-600 mb-2">
+                    ${marketExchangeRate.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-xs text-slate-500 font-medium">
+                    {rateSource}
+                  </div>
+                </button>
+              </div>
+
+              {/* Info Box */}
+              <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-900">
+                    <strong className="font-bold">💡 Cómo funciona:</strong>
+                    <ul className="mt-2 space-y-1 ml-4 list-disc">
+                      <li>Las reservas de Airbnb se registraron con su tasa original</li>
+                      <li>Al activar esto, se <strong>recalcula el pago final</strong> usando la tasa: <strong>{liquidationRateType === 'manual' ? 'Manual' : 'TRM Oficial'}</strong></li>
+                      <li>Verás la <strong>diferencia</strong> (ganancia o pérdida) por el cambio de tasa</li>
+                      <li className="text-emerald-700 font-semibold">✅ Los valores originales NO se modifican</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contenido Principal */}
+      {(!customStartDate || !customEndDate) ? (
+        <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+          <CalendarRange size={48} className="mx-auto mb-2 opacity-20" />
+          <p>Selecciona un rango de fechas para generar el reporte.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-8">
+          {Object.entries(ownerStats).map(([owner, data]) => {
+            if (data.reservations.length === 0) return null;
+            return (
+              <div key={owner} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-800">{owner}</h3>
+                    <div className="flex gap-2 text-xs text-slate-500 mt-1">
+                      {data.props.map(p => (
+                        <span key={p} className="bg-white border border-slate-200 px-2 py-0.5 rounded flex items-center gap-1">
+                          <Building2 size={10}/> {p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">A Pagar (COP)</p>
+                    <p className="text-2xl font-bold text-primary-600">{formatCOP(data.payout)}</p>
+                  </div>
+                </div>
+
+                {/* ✅ NUEVO: Panel de Liquidación por Dueño */}
+                {useLiquidationRate && liquidation && liquidation[owner] && liquidation[owner].airbnbCount > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-4 border-b-2 border-blue-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <DollarSign size={18} className="text-blue-600" />
+                      <span className="font-bold text-slate-800 text-sm uppercase tracking-wide">
+                        💰 Liquidación Final con Tasa {liquidationRateType === 'manual' ? 'Manual' : 'TRM'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-white p-3 rounded-lg border border-blue-200">
+                        <div className="text-xs text-slate-600 mb-1">📋 Reservas Airbnb USD</div>
+                        <div className="text-lg font-bold text-blue-600">
+                          {liquidation[owner].airbnbCount}
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-3 rounded-lg border border-blue-200">
+                        <div className="text-xs text-slate-600 mb-1">💵 Pago con nueva tasa</div>
+                        <div className="text-lg font-bold text-blue-600">
+                          {formatCOP(liquidation[owner].liquidationPayout)}
+                        </div>
+                      </div>
+
+                      <div className={`p-3 rounded-lg border-2 ${
+                        liquidation[owner].difference > 0 
+                          ? 'bg-green-100 border-green-300' 
+                          : liquidation[owner].difference < 0
+                          ? 'bg-red-100 border-red-300'
+                          : 'bg-gray-100 border-gray-200'
+                      }`}>
+                        <div className="text-xs font-bold mb-1">
+                          {liquidation[owner].difference > 0 ? '📈 Ganancia' : liquidation[owner].difference < 0 ? '📉 Pérdida' : '➖ Sin cambio'}
+                        </div>
+                        <div className={`text-lg font-bold ${
+                          liquidation[owner].difference > 0 ? 'text-green-700' : 'text-red-700'
+                        }`}>
+                          {liquidation[owner].difference > 0 ? '+' : ''}{formatCOP(Math.abs(liquidation[owner].difference))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tabla de Reservas */}
+                <div className="p-0 overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-white text-slate-500 border-b border-slate-100">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Huesped / Plat.</th>
+                        <th className="px-4 py-3 font-medium">Fechas</th>
+                        <th className="px-4 py-3 font-medium text-right">Monto</th>
+                        {isAdmin && <th className="px-4 py-3 font-medium text-right text-red-400">Comisión</th>}
+                        <th className="px-4 py-3 font-medium text-center">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {data.reservations.map((item, idx) => (
+                        <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>
+                          <td className="px-4 py-3 font-medium text-slate-700">
+                            <div className="flex flex-col">
+                              <span>{item.res.guestName}</span>
+                              <span className={`text-[10px] w-fit px-1 rounded font-bold uppercase ${item.res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
+                                {item.res.platform}
+                              </span>
+                            </div>
+                            {item.isPartial && (
+                              <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                                <AlertTriangle size={10} className="mr-1"/> Conflicto de fechas
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 text-xs">
+                            {formatCustomDate(item.res.checkInDate, item.res.checkOutDate)}
+                          </td>
+                          <td className={`px-4 py-3 text-right ${item.isExcluded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                            <div className="flex flex-col">
+                              <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
+                              
+                              {/* Detalles Airbnb */}
+                              {item.res.platform === Platform.Airbnb && (
+                                <div className="text-[10px] space-y-0.5 mt-1">
+                                  {item.res.enteredAs === 'COP' ? (
+                                    <>
+                                      <div className="text-blue-600 font-bold">💵 Ingresado: {formatCOP(item.res.totalAmount)}</div>
+                                      <div className="text-emerald-600">→ USD ${item.res.usdAmount?.toFixed(2)} @ {item.res.exchangeRate}</div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="text-emerald-600 font-bold">💵 Ingresado: USD ${item.res.usdAmount}</div>
+                                      <div className="text-blue-600">→ Tasa: {item.res.exchangeRate} COP/USD</div>
+                                    </>
+                                  )}
+                                  
+                                  {/* Panel de Recálculo */}
+                                  {item.recalcData && useCustomRateForPayouts && (
+                                    <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded space-y-1">
+                                      <div className="font-semibold text-purple-700 text-[9px] uppercase tracking-wide">
+                                        🔄 Recálculo de Pago
+                                      </div>
+                                      <div className="text-purple-600 font-medium">
+                                        USD ${item.recalcData.usdAmount.toFixed(2)} @ {item.recalcData.payoutRate.toFixed(2)}
+                                      </div>
+                                      <div className="text-purple-700 font-bold">
+                                        = {formatCOP(item.recalcData.recalculatedCOP)}
+                                      </div>
+                                      {item.recalcData.rateDifference !== 0 && (
+                                        <div className={`text-[9px] font-semibold flex items-center gap-1 ${
+                                          item.recalcData.rateDifference > 0 ? 'text-green-600' : 'text-red-600'
+                                        }`}>
+                                          <span>{item.recalcData.rateDifference > 0 ? '↗' : '↘'}</span>
+                                          <span>
+                                            {item.recalcData.rateDifference > 0 ? 'Ganancia' : 'Pérdida'}: {formatCOP(Math.abs(item.recalcData.rateDifference))}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          {isAdmin && (
+                            <td className={`px-4 py-3 text-right font-mono text-xs ${item.isExcluded ? 'line-through text-slate-300' : 'text-red-500'}`}>
+                              -{formatCOP(item.commission)}
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-center">
+                            {item.isPartial ? (
+                              <button 
+                                onClick={() => toggleReservationExclusion(item.res.id)}
+                                className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                                  item.isExcluded 
+                                    ? 'bg-slate-200 text-slate-500 hover:bg-slate-300' 
+                                    : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                }`}
+                              >
+                                {item.isExcluded ? <Square size={14} /> : <CheckSquare size={14} />}
+                                {item.isExcluded ? 'Excluido' : 'Incluido'}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-emerald-600 font-medium flex justify-center gap-1">
+                                <Check size={14}/> Auto
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
   
   const renderReports = () => {
     return (
