@@ -1580,7 +1580,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
     }
   });
 
-  // ✅ Calcular liquidación con tasa personalizada
+  // Calcular liquidación con tasa personalizada
   const liquidation = calculateLiquidation(ownerStats);
 
   return (
@@ -1615,7 +1615,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
         </div>
       </div>
 
-      {/* ✅ NUEVO: Panel de Liquidación con Tasa Personalizada */}
+      {/* Panel de Liquidación con Tasa Personalizada */}
       {isAdmin && (
         <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border-2 border-blue-300 shadow-lg">
           <div className="flex items-start gap-3 mb-4">
@@ -1768,7 +1768,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                   </div>
                 </div>
 
-                {/* ✅ NUEVO: Panel de Liquidación por Dueño */}
+                {/* Panel de Liquidación por Dueño */}
                 {useLiquidationRate && liquidation && liquidation[owner] && liquidation[owner].airbnbCount > 0 && (
                   <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-4 border-b-2 border-blue-200">
                     <div className="flex items-center gap-2 mb-3">
@@ -1820,103 +1820,134 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                       <tr>
                         <th className="px-4 py-3 font-medium">Huesped / Plat.</th>
                         <th className="px-4 py-3 font-medium">Fechas</th>
-                        <th className="px-4 py-3 font-medium text-right">Monto</th>
+                        <th className="px-4 py-3 font-medium text-right">Monto Original</th>
+                        {isAdmin && useLiquidationRate && (
+                          <th className="px-4 py-3 font-medium text-right bg-blue-50 text-blue-700 border-l-2 border-blue-200">
+                            <div className="flex items-center justify-end gap-1">
+                              <DollarSign size={14} />
+                              <span>Monto Recalculado</span>
+                            </div>
+                          </th>
+                        )}
                         {isAdmin && <th className="px-4 py-3 font-medium text-right text-red-400">Comisión</th>}
                         <th className="px-4 py-3 font-medium text-center">Estado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {data.reservations.map((item, idx) => (
-                        <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>
-                          <td className="px-4 py-3 font-medium text-slate-700">
-                            <div className="flex flex-col">
-                              <span>{item.res.guestName}</span>
-                              <span className={`text-[10px] w-fit px-1 rounded font-bold uppercase ${item.res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
-                                {item.res.platform}
-                              </span>
-                            </div>
-                            {item.isPartial && (
-                              <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                                <AlertTriangle size={10} className="mr-1"/> Conflicto de fechas
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-500 text-xs">
-                            {formatCustomDate(item.res.checkInDate, item.res.checkOutDate)}
-                          </td>
-                          <td className={`px-4 py-3 text-right ${item.isExcluded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                            <div className="flex flex-col">
-                              <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
-                              
-                              {/* Detalles Airbnb */}
-                              {item.res.platform === Platform.Airbnb && (
-                                <div className="text-[10px] space-y-0.5 mt-1">
-                                  {item.res.enteredAs === 'COP' ? (
-                                    <>
-                                      <div className="text-blue-600 font-bold">💵 Ingresado: {formatCOP(item.res.totalAmount)}</div>
-                                      <div className="text-emerald-600">→ USD ${item.res.usdAmount?.toFixed(2)} @ {item.res.exchangeRate}</div>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div className="text-emerald-600 font-bold">💵 Ingresado: USD ${item.res.usdAmount}</div>
-                                      <div className="text-blue-600">→ Tasa: {item.res.exchangeRate} COP/USD</div>
-                                    </>
-                                  )}
-                                  
-                                  {/* Panel de Recálculo */}
-                                  {item.recalcData && useCustomRateForPayouts && (
-                                    <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded space-y-1">
-                                      <div className="font-semibold text-purple-700 text-[9px] uppercase tracking-wide">
-                                        🔄 Recálculo de Pago
+                      {data.reservations.map((item, idx) => {
+                        // Calcular valor recalculado para esta fila
+                        const recalculatedCOP = item.res.platform === Platform.Airbnb && item.res.usdAmount
+                          ? item.res.usdAmount * (liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate)
+                          : null;
+                        const difference = recalculatedCOP ? recalculatedCOP - item.calculatedCop : 0;
+
+                        return (
+                          <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>
+                            {/* Columna Huésped */}
+                            <td className="px-4 py-3 font-medium text-slate-700">
+                              <div className="flex flex-col">
+                                <span>{item.res.guestName}</span>
+                                <span className={`text-[10px] w-fit px-1 rounded font-bold uppercase ${item.res.platform === Platform.Airbnb ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
+                                  {item.res.platform}
+                                </span>
+                              </div>
+                              {item.isPartial && (
+                                <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+                                  <AlertTriangle size={10} className="mr-1"/> Conflicto de fechas
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Columna Fechas */}
+                            <td className="px-4 py-3 text-slate-500 text-xs">
+                              {formatCustomDate(item.res.checkInDate, item.res.checkOutDate)}
+                            </td>
+
+                            {/* Columna Monto ORIGINAL */}
+                            <td className={`px-4 py-3 text-right ${item.isExcluded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                              <div className="flex flex-col">
+                                <span className="font-bold">{formatCOP(item.calculatedCop)}</span>
+                                
+                                {/* Detalles Airbnb */}
+                                {item.res.platform === Platform.Airbnb && item.res.usdAmount && (
+                                  <div className="text-[10px] space-y-0.5 mt-1">
+                                    {item.res.enteredAs === 'COP' ? (
+                                      <>
+                                        <div className="text-blue-600 font-bold">💵 Ingresado: {formatCOP(item.res.totalAmount)}</div>
+                                        <div className="text-emerald-600">→ USD ${item.res.usdAmount?.toFixed(2)} @ {item.res.exchangeRate}</div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="text-emerald-600 font-bold">💵 Ingresado: USD ${item.res.usdAmount}</div>
+                                        <div className="text-blue-600">→ Tasa: {item.res.exchangeRate} COP/USD</div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* NUEVA COLUMNA: Monto Recalculado */}
+                            {isAdmin && useLiquidationRate && (
+                              <td className="px-4 py-3 text-right bg-gradient-to-br from-blue-50/50 to-purple-50/50 border-l-2 border-blue-200">
+                                {recalculatedCOP ? (
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-blue-700">
+                                      {formatCOP(recalculatedCOP)}
+                                    </span>
+                                    
+                                    <div className="text-[10px] space-y-0.5 mt-1">
+                                      <div className="text-blue-600 font-bold">
+                                        💱 {item.res.usdAmount?.toFixed(2)} USD
                                       </div>
-                                      <div className="text-purple-600 font-medium">
-                                        USD ${item.recalcData.usdAmount.toFixed(2)} @ {item.recalcData.payoutRate.toFixed(2)}
+                                      <div className="text-purple-600">
+                                        @ {(liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate).toFixed(2)}
                                       </div>
-                                      <div className="text-purple-700 font-bold">
-                                        = {formatCOP(item.recalcData.recalculatedCOP)}
-                                      </div>
-                                      {item.recalcData.rateDifference !== 0 && (
-                                        <div className={`text-[9px] font-semibold flex items-center gap-1 ${
-                                          item.recalcData.rateDifference > 0 ? 'text-green-600' : 'text-red-600'
-                                        }`}>
-                                          <span>{item.recalcData.rateDifference > 0 ? '↗' : '↘'}</span>
-                                          <span>
-                                            {item.recalcData.rateDifference > 0 ? 'Ganancia' : 'Pérdida'}: {formatCOP(Math.abs(item.recalcData.rateDifference))}
-                                          </span>
+                                      
+                                      {difference !== 0 && (
+                                        <div className={`font-semibold flex items-center gap-1 ${difference > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          <span>{difference > 0 ? '📈' : '📉'}</span>
+                                          <span>{difference > 0 ? '+' : ''}{formatCOP(Math.abs(difference))}</span>
                                         </div>
                                       )}
                                     </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          {isAdmin && (
-                            <td className={`px-4 py-3 text-right font-mono text-xs ${item.isExcluded ? 'line-through text-slate-300' : 'text-red-500'}`}>
-                              -{formatCOP(item.commission)}
-                            </td>
-                          )}
-                          <td className="px-4 py-3 text-center">
-                            {item.isPartial ? (
-                              <button 
-                                onClick={() => toggleReservationExclusion(item.res.id)}
-                                className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                                  item.isExcluded 
-                                    ? 'bg-slate-200 text-slate-500 hover:bg-slate-300' 
-                                    : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                }`}
-                              >
-                                {item.isExcluded ? <Square size={14} /> : <CheckSquare size={14} />}
-                                {item.isExcluded ? 'Excluido' : 'Incluido'}
-                              </button>
-                            ) : (
-                              <span className="text-xs text-emerald-600 font-medium flex justify-center gap-1">
-                                <Check size={14}/> Auto
-                              </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-slate-400">—</span>
+                                )}
+                              </td>
                             )}
-                          </td>
-                        </tr>
-                      ))}
+
+                            {/* Columna Comisión */}
+                            {isAdmin && (
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${item.isExcluded ? 'line-through text-slate-300' : 'text-red-500'}`}>
+                                -{formatCOP(item.commission)}
+                              </td>
+                            )}
+
+                            {/* Columna Estado */}
+                            <td className="px-4 py-3 text-center">
+                              {item.isPartial ? (
+                                <button 
+                                  onClick={() => toggleReservationExclusion(item.res.id)}
+                                  className={`flex items-center justify-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                                    item.isExcluded 
+                                      ? 'bg-slate-200 text-slate-500 hover:bg-slate-300' 
+                                      : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                  }`}
+                                >
+                                  {item.isExcluded ? <Square size={14} /> : <CheckSquare size={14} />}
+                                  {item.isExcluded ? 'Excluido' : 'Incluido'}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-emerald-600 font-medium flex justify-center gap-1">
+                                  <Check size={14}/> Auto
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1928,6 +1959,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
     </div>
   );
 };
+
 
   
   const renderReports = () => {
