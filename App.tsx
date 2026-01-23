@@ -1839,7 +1839,14 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                         const recalculatedCOP = item.res.platform === Platform.Airbnb && item.res.usdAmount
                           ? item.res.usdAmount * (liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate)
                           : null;
-                        const difference = recalculatedCOP ? recalculatedCOP - item.calculatedCop : 0;
+
+                        // Compare against HISTORICAL (Stored) value to show gain/loss correctly
+                        // Note: item.calculatedCop might already be the recalculated value if global toggle is ON.
+                        const originalStoredCOP = (item.res.usdAmount && item.res.exchangeRate)
+                            ? item.res.usdAmount * item.res.exchangeRate
+                            : item.calculatedCop;
+
+                        const difference = recalculatedCOP ? recalculatedCOP - originalStoredCOP : 0;
 
                         return (
                           <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>

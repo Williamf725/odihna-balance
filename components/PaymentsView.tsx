@@ -35,6 +35,10 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
 }) => {
     const [viewMode, setViewMode] = useState<'pending' | 'history'>('pending');
     
+    // Date Filters for Pending View
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+
     // Payment Modal State
     const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -49,6 +53,12 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
         reservations.forEach(res => {
             // Check if reservation is unpaid (no paymentId)
             if (res.paymentId) return;
+
+            // Date Filter Check (Overlap Logic: Check-out date inside range? Or just standard intersection?)
+            // Usually for payments, you pay based on Check-out date.
+            // "Pago quincenal" implies everything ending in that fortnight.
+            if (startDate && res.checkOutDate < startDate) return;
+            if (endDate && res.checkOutDate > endDate) return;
 
             const prop = properties.find(p => p.id === res.propertyId);
             if (!prop) return;
@@ -113,6 +123,37 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                     </h2>
                     <p className="text-slate-500 text-sm">Gestiona liquidaciones a propietarios.</p>
                 </div>
+
+                {/* Date Filters (Only in Pending Mode) */}
+                {viewMode === 'pending' && (
+                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 pl-1">Desde</span>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="bg-transparent text-sm font-medium text-slate-700 outline-none"
+                            />
+                        </div>
+                        <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 pl-1">Hasta</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="bg-transparent text-sm font-medium text-slate-700 outline-none"
+                            />
+                        </div>
+                        {(startDate || endDate) && (
+                            <button onClick={() => { setStartDate(''); setEndDate(''); }} className="ml-2 p-1 text-slate-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors">
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 <div className="flex bg-slate-100 p-1 rounded-xl">
                     <button 
                         onClick={() => setViewMode('pending')} 
