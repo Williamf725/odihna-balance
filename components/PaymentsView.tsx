@@ -70,9 +70,14 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
             const owner = prop.ownerName;
             
             // Calculate payout for this specific reservation
-            const copValue = getAirbnbCopValue(res);
-            const commission = copValue * (prop.commissionRate / 100);
-            const payout = copValue - commission;
+            let payout = 0;
+            if (res.reservationType === 'Monthly') {
+                payout = res.monthlyExpensesAndOwnerPay || 0;
+            } else {
+                const copValue = getAirbnbCopValue(res);
+                const commission = copValue * (prop.commissionRate / 100);
+                payout = copValue - commission;
+            }
 
             if (!groups[owner]) {
                 groups[owner] = { totalPayout: 0, count: 0, reservations: [] };
@@ -127,6 +132,10 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
             // Calculate value for this res
             const prop = properties.find(p => p.id === res.propertyId);
             if (!prop) return sum;
+
+            if (res.reservationType === 'Monthly') {
+                return sum + (res.monthlyExpensesAndOwnerPay || 0);
+            }
 
             const copValue = getAirbnbCopValue(res);
             const commission = copValue * (prop.commissionRate / 100);
