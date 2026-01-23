@@ -80,7 +80,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
         });
 
         return groups;
-    }, [reservations, properties, getAirbnbCopValue]);
+    }, [reservations, properties, getAirbnbCopValue, startDate, endDate]);
 
     const openPaymentModal = (owner: string) => {
         const data = pendingByOwner[owner];
