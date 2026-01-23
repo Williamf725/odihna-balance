@@ -113,7 +113,6 @@ function App() {
   });
 
   // Report States
-  const [reportSubTab, setReportSubTab] = useState<'general' | 'custom'>('general');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
@@ -1519,43 +1518,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
 };
 
 
-  const renderGeneralReports = () => {
-    const ownerStats: Record<string, { revenue: number, payout: number, props: string[] }> = {};
-    visibleProperties.forEach(p => { if (!ownerStats[p.ownerName]) ownerStats[p.ownerName] = { revenue: 0, payout: 0, props: [] }; ownerStats[p.ownerName].props.push(p.name); });
-    
-   monthlyReservations.forEach(r => { 
-  const prop = visibleProperties.find(p => p.id === r.propertyId); 
-  if (prop && ownerStats[prop.ownerName]) {
-    const isMonthly = r.reservationType === ReservationType.Monthly;
-    
-    if (isMonthly) {
-      const monthlyTotal = r.totalAmount || 0;
-      const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
-      
-      ownerStats[prop.ownerName].revenue += monthlyTotal;
-      ownerStats[prop.ownerName].payout += expensesAndOwnerPay;
-    } else {
-      const copValue = getAirbnbCopValue(r);
-      const commission = copValue * (prop.commissionRate / 100); 
-      
-      ownerStats[prop.ownerName].revenue += copValue; 
-      ownerStats[prop.ownerName].payout += (copValue - commission); 
-    }
-  } 
-});
-
-
-    return (
-        <div className="space-y-6 pb-24 lg:pb-12">
-             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center gap-3 text-blue-700 text-sm">
-                <AlertTriangle size={18} />
-                <span>Vista Mensual: Mostrando reservas que <strong>inician</strong> en {formatMonthYear(currentMonth)}.</span>
-                <input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="ml-auto px-4 py-1.5 bg-white border border-blue-200 rounded-lg text-sm text-slate-700 font-medium"/>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{Object.entries(ownerStats).map(([owner, data]) => (<div key={owner} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between"><div><div className="flex justify-between items-start mb-4"><div><h3 className="font-bold text-lg text-slate-800">{owner}</h3><div className="mt-1 space-y-1">{data.props.map((propName) => (<p key={propName} className="text-xs text-slate-500 flex items-center gap-1.5"><Building2 size={12}/>{propName}</p>))}</div></div></div><div className="space-y-2 mb-6"><div className="flex justify-between text-sm"><span className="text-slate-500">Total</span><span className="font-medium">{formatCOP(data.revenue)}</span></div>{isAdmin && (<div className="flex justify-between text-sm"><span className="text-slate-500">Comisiones</span><span className="font-medium text-red-500">-{formatCOP(data.revenue - data.payout)}</span></div>)}</div></div><div className="pt-4 border-t border-slate-100"><div className="flex justify-between items-end"><span className="text-slate-600 font-medium">Pago Final</span><span className="text-2xl font-bold text-primary-600">{formatCOP(data.payout)}</span></div></div></div>))}</div>
-        </div>
-    );
-  };
 
  const renderCustomReports = () => {
   const rangeStart = customStartDate;
@@ -2117,24 +2079,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                     <h2 className="text-xl font-bold text-slate-800">Reportes y Estadísticas</h2>
                     <p className="text-slate-500 text-sm">Analiza el rendimiento de tus propiedades.</p>
                 </div>
-                <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button 
-                        onClick={() => setReportSubTab('general')} 
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            reportSubTab === 'general' ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                        General
-                    </button>
-                    <button 
-                        onClick={() => setReportSubTab('custom')} 
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            reportSubTab === 'custom' ? 'bg-white text-primary-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                        Personalizado
-                    </button>
-                </div>
              </div>
 
             {/* USD Management Card - RESTORED & ADAPTED FOR MOBILE */}
@@ -2193,7 +2137,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                 </div>
             )}
 
-             {reportSubTab === 'general' ? renderGeneralReports() : renderCustomReports()}
+             {renderCustomReports()}
         </div>
     );
   };
