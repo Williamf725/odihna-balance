@@ -117,7 +117,10 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
+
+  // ✅ NEW: Top-level state for Total Summary selection
   const [selectedOwnersForTotal, setSelectedOwnersForTotal] = useState<Set<string>>(new Set());
+
   // ✅ NUEVO: Control de tasa para liquidación final
 const [useLiquidationRate, setUseLiquidationRate] = useState(false);
 const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
@@ -239,6 +242,28 @@ const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manu
   useEffect(() => {
       localStorage.setItem('gestor_pro_manual_usd_rate', manualExchangeRate.toString());
   }, [manualExchangeRate]);
+
+  // Effect to auto-select all owners initially or when properties change
+  useEffect(() => {
+      if (properties.length > 0) {
+          const allOwners = new Set(properties.map(p => p.ownerName));
+          // Only update if the size significantly differs (simple heuristic to avoid loops,
+          // or ideally just set it if empty. Let's keep it simple: if empty, fill it.)
+          setSelectedOwnersForTotal(prev => {
+              if (prev.size === 0) return allOwners;
+              return prev;
+          });
+      }
+  }, [properties]);
+
+  const toggleOwnerSelection = (owner: string) => {
+      setSelectedOwnersForTotal(prev => {
+          const next = new Set(prev);
+          if (next.has(owner)) next.delete(owner);
+          else next.add(owner);
+          return next;
+      });
+  };
 
   // --- OFFICIAL TRM FETCHING ---
   const fetchMarketRate = async () => {
@@ -1608,23 +1633,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
   // Calcular liquidación con tasa personalizada
   const liquidation = calculateLiquidation(ownerStats);
 
-  // Initial population of selected owners (only once or when list changes significantly empty)
-  useEffect(() => {
-      const allOwners = Object.keys(ownerStats);
-      if (allOwners.length > 0 && selectedOwnersForTotal.size === 0) {
-          setSelectedOwnersForTotal(new Set(allOwners));
-      }
-  }, [Object.keys(ownerStats).length]);
-
-  const toggleOwnerSelection = (owner: string) => {
-      setSelectedOwnersForTotal(prev => {
-          const next = new Set(prev);
-          if (next.has(owner)) next.delete(owner);
-          else next.add(owner);
-          return next;
-      });
-  };
-
+  // Calculate Total Sum based on top-level state
   const totalPayoutSum = Object.entries(ownerStats).reduce((sum, [owner, data]) => {
       if (!selectedOwnersForTotal.has(owner)) return sum;
 
