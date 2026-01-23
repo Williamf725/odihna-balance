@@ -1645,6 +1645,43 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       return sum + payout;
   }, 0);
 
+  // Calculate Total Earnings based on selected owners
+  const totalEarningsSum = Object.entries(ownerStats).reduce((sum, [owner, data]) => {
+      if (!selectedOwnersForTotal.has(owner)) return sum;
+
+      let earnings = 0;
+      data.reservations.forEach(item => {
+          if (item.isExcluded) return;
+
+          const res = item.res;
+          const prop = visibleProperties.find(p => p.id === res.propertyId);
+          if (!prop) return;
+
+          const isMonthly = res.reservationType === ReservationType.Monthly;
+
+          if (isMonthly) {
+              // Monthly: Earnings = Total - (Expenses + OwnerPay)
+              // Note: item.calculatedCop handles the logic for monthly total, but let's be explicit
+              const monthlyTotal = res.totalAmount || 0;
+              const expensesAndOwnerPay = res.monthlyExpensesAndOwnerPay || 0;
+              earnings += (monthlyTotal - expensesAndOwnerPay);
+          } else {
+              // Standard: Commission based on effective rate
+              let effectiveCOP = item.calculatedCop;
+
+              // If liquidation active, recalculate base COP first
+              if (useLiquidationRate && res.platform === Platform.Airbnb && res.usdAmount) {
+                  const liquidationRate = liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate;
+                  effectiveCOP = res.usdAmount * liquidationRate;
+              }
+
+              earnings += effectiveCOP * (prop.commissionRate / 100);
+          }
+      });
+
+      return sum + earnings;
+  }, 0);
+
   return (
     <div className="space-y-6 pb-24 lg:pb-12">
 
@@ -1652,12 +1689,18 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       {isAdmin && customStartDate && customEndDate && (
           <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-6 rounded-2xl text-white shadow-lg">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <div>
-                      <h3 className="text-emerald-100 font-medium text-sm uppercase tracking-wider mb-1">Total a Pagar (Seleccionados)</h3>
-                      <p className="text-4xl font-bold">{formatCOP(totalPayoutSum)}</p>
-                      <p className="text-xs text-emerald-200 mt-2 flex items-center gap-1">
-                          <CheckSquare size={12} /> {selectedOwnersForTotal.size} propietarios incluidos
-                      </p>
+                  <div className="space-y-4">
+                      <div>
+                          <h3 className="text-emerald-100 font-medium text-sm uppercase tracking-wider mb-1">Total a Pagar (Seleccionados)</h3>
+                          <p className="text-4xl font-bold">{formatCOP(totalPayoutSum)}</p>
+                          <p className="text-xs text-emerald-200 mt-2 flex items-center gap-1">
+                              <CheckSquare size={12} /> {selectedOwnersForTotal.size} propietarios incluidos
+                          </p>
+                      </div>
+                      <div className="pt-4 border-t border-white/20">
+                          <h3 className="text-emerald-100 font-medium text-xs uppercase tracking-wider mb-1">Mis Ganancias (Seleccionados)</h3>
+                          <p className="text-2xl font-bold text-emerald-50">{formatCOP(totalEarningsSum)}</p>
+                      </div>
                   </div>
 
                   <div className="bg-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/20 w-full md:w-auto min-w-[250px]">
