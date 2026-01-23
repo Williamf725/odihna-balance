@@ -47,6 +47,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
     const [manualAmount, setManualAmount] = useState<number>(0);
     const [paymentNotes, setPaymentNotes] = useState('');
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+    const [excludedMonthlyReservationIds, setExcludedMonthlyReservationIds] = useState<Set<string>>(new Set());
 
     // 1. Group Pending Reservations by Owner
     const pendingByOwner = useMemo<Record<string, { totalPayout: number, count: number, reservations: Reservation[] }>>(() => {
@@ -89,10 +90,45 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
         if (!data) return;
         
         setSelectedOwner(owner);
+        setExcludedMonthlyReservationIds(new Set()); // Reset exclusion on open
         setManualAmount(Math.round(data.totalPayout)); // Default to calculated
         setPaymentNotes('');
         setPaymentDate(new Date().toISOString().split('T')[0]);
         setPaymentModalOpen(true);
+    };
+
+    // Recalculate total when exclusions change
+    const displayedTotalPayout = useMemo(() => {
+        if (!selectedOwner || !pendingByOwner[selectedOwner]) return 0;
+
+        const data = pendingByOwner[selectedOwner];
+        return data.reservations.reduce((sum, res) => {
+            if (excludedMonthlyReservationIds.has(res.id)) return sum;
+
+            // Calculate value for this res
+            const prop = properties.find(p => p.id === res.propertyId);
+            if (!prop) return sum;
+
+            const copValue = getAirbnbCopValue(res);
+            const commission = copValue * (prop.commissionRate / 100);
+            return sum + (copValue - commission);
+        }, 0);
+    }, [selectedOwner, pendingByOwner, excludedMonthlyReservationIds, getAirbnbCopValue, properties]);
+
+    // Update manual amount when displayed total changes (auto-fill unless user edited?
+    // Simplified: Just update it if it matches the previous total, or force update for this feature)
+    // Better: Sync manual amount with displayed total for now to ensure consistency.
+    React.useEffect(() => {
+        setManualAmount(Math.round(displayedTotalPayout));
+    }, [displayedTotalPayout]);
+
+    const toggleReservationExclusion = (id: string) => {
+        setExcludedMonthlyReservationIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
     };
 
     const handleConfirmPayment = () => {
@@ -100,13 +136,21 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
 
         const data = pendingByOwner[selectedOwner];
         
+        // Filter out excluded reservations
+        const includedReservations = data.reservations.filter(r => !excludedMonthlyReservationIds.has(r.id));
+
+        if (includedReservations.length === 0) {
+            alert("Debes incluir al menos una reserva para realizar el pago.");
+            return;
+        }
+
         const newPayment: OwnerPayment = {
             id: safeId(),
             ownerName: selectedOwner,
             date: paymentDate,
             amountPaid: manualAmount,
-            expectedAmount: data.totalPayout,
-            reservationIds: data.reservations.map(r => r.id),
+            expectedAmount: displayedTotalPayout,
+            reservationIds: includedReservations.map(r => r.id),
             notes: paymentNotes,
             exchangeRate: isLiquidationEnabled ? currentLiquidationRate : undefined
         };
@@ -299,7 +343,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                                     )}
                                 </div>
                                 <div className="text-xl font-bold text-emerald-700">
-                                    {formatCOP(pendingByOwner[selectedOwner].totalPayout)}
+                                    {formatCOP(displayedTotalPayout)}
                                 </div>
                             </div>
 
@@ -351,17 +395,38 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                             {/* List of included reservations */}
                             <div className="border-t border-slate-100 pt-4">
                                 <p className="text-xs font-bold text-slate-500 uppercase mb-2">Detalle de Reservas Incluidas</p>
-                                <div className="max-h-32 overflow-y-auto space-y-2 pr-2">
+                                <div className="max-h-32 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                     {pendingByOwner[selectedOwner].reservations.map(res => {
                                         const prop = properties.find(p => p.id === res.propertyId);
+                                        const isMonthly = res.reservationType === 'Monthly';
+
                                         return (
-                                            <div key={res.id} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-lg">
-                                                <div>
-                                                    <span className="font-medium text-slate-700">{res.guestName}</span>
-                                                    <span className="text-slate-400 mx-1">•</span>
-                                                    <span className="text-slate-500">{prop?.name}</span>
+                                            <div key={res.id} className={`flex items-center text-xs p-2 rounded-lg transition-colors ${excludedMonthlyReservationIds.has(res.id) ? 'bg-slate-50 opacity-50' : 'bg-slate-100'}`}>
+                                                {isMonthly && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!excludedMonthlyReservationIds.has(res.id)}
+                                                        onChange={() => toggleReservationExclusion(res.id)}
+                                                        className="mr-3 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300"
+                                                    />
+                                                )}
+
+                                                <div className="flex-1 flex justify-between items-center">
+                                                    <div>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className={`font-medium ${excludedMonthlyReservationIds.has(res.id) ? 'text-slate-500 line-through' : 'text-slate-700'}`}>
+                                                                {res.guestName}
+                                                            </span>
+                                                            {isMonthly && <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-bold">MENSUAL</span>}
+                                                        </div>
+                                                        <div className="text-slate-500 flex items-center gap-1">
+                                                            <span>{prop?.name}</span>
+                                                            <span className="text-slate-300">•</span>
+                                                            <span>{res.checkOutDate}</span>
+                                                        </div>
+                                                    </div>
+                                                    {!isMonthly && <CheckCircle2 size={14} className="text-slate-300" />}
                                                 </div>
-                                                <span className="text-slate-600">{res.checkInDate}</span>
                                             </div>
                                         );
                                     })}
