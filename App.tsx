@@ -117,6 +117,7 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
+  const [selectedOwnersForTotal, setSelectedOwnersForTotal] = useState<Set<string>>(new Set());
   // ✅ NUEVO: Control de tasa para liquidación final
 const [useLiquidationRate, setUseLiquidationRate] = useState(false);
 const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
@@ -1607,8 +1608,71 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
   // Calcular liquidación con tasa personalizada
   const liquidation = calculateLiquidation(ownerStats);
 
+  // Initial population of selected owners (only once or when list changes significantly empty)
+  useEffect(() => {
+      const allOwners = Object.keys(ownerStats);
+      if (allOwners.length > 0 && selectedOwnersForTotal.size === 0) {
+          setSelectedOwnersForTotal(new Set(allOwners));
+      }
+  }, [Object.keys(ownerStats).length]);
+
+  const toggleOwnerSelection = (owner: string) => {
+      setSelectedOwnersForTotal(prev => {
+          const next = new Set(prev);
+          if (next.has(owner)) next.delete(owner);
+          else next.add(owner);
+          return next;
+      });
+  };
+
+  const totalPayoutSum = Object.entries(ownerStats).reduce((sum, [owner, data]) => {
+      if (!selectedOwnersForTotal.has(owner)) return sum;
+
+      let payout = data.payout;
+      // If liquidation is active, use the recalculated payout
+      if (useLiquidationRate && liquidation && liquidation[owner]) {
+          payout = liquidation[owner].liquidationPayout;
+      }
+      return sum + payout;
+  }, 0);
+
   return (
     <div className="space-y-6 pb-24 lg:pb-12">
+
+      {/* TOTAL SUMMARY CARD */}
+      {isAdmin && customStartDate && customEndDate && (
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-6 rounded-2xl text-white shadow-lg">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                  <div>
+                      <h3 className="text-emerald-100 font-medium text-sm uppercase tracking-wider mb-1">Total a Pagar (Seleccionados)</h3>
+                      <p className="text-4xl font-bold">{formatCOP(totalPayoutSum)}</p>
+                      <p className="text-xs text-emerald-200 mt-2 flex items-center gap-1">
+                          <CheckSquare size={12} /> {selectedOwnersForTotal.size} propietarios incluidos
+                      </p>
+                  </div>
+
+                  <div className="bg-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/20 w-full md:w-auto min-w-[250px]">
+                      <p className="text-xs font-bold text-white mb-2 uppercase flex items-center gap-2">
+                          <Filter size={12} /> Incluir en Suma:
+                      </p>
+                      <div className="max-h-32 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
+                          {Object.keys(ownerStats).map(owner => (
+                              <label key={owner} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white/10 p-1 rounded transition-colors">
+                                  <input
+                                      type="checkbox"
+                                      checked={selectedOwnersForTotal.has(owner)}
+                                      onChange={() => toggleOwnerSelection(owner)}
+                                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                                  />
+                                  <span className="truncate">{owner}</span>
+                              </label>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Panel de Filtros de Fecha */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
