@@ -117,12 +117,8 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
-  // ✅ NUEVO: Control de tasa para liquidación final
-const [useLiquidationRate, setUseLiquidationRate] = useState(false);
-const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
-  // ✅ NUEVO: Estados para recálculo de tasa Airbnb en reportes personalizados
-const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
-const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
+  const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
+  const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
  
   // Editing State
   const [editingProperty, setEditingProperty] = useState<Property | undefined>(undefined);
@@ -467,48 +463,38 @@ const getAirbnbDetails = (res: Reservation) => {
 
   
   const getAirbnbEffectiveRate = () => Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
-  
-// ✅ NUEVO: Helper para recalcular pago a dueño con tasa diferente
-const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
-  // Solo aplica a Airbnb con USD
-  if (res.platform !== Platform.Airbnb || !res.usdAmount) {
-    return null; // No aplica recálculo
-  }
 
-  // Tasa original con la que se registró
-  const originalRate = res.exchangeRate || 0;
-  const originalCOP = res.usdAmount * originalRate;
+  const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
+    // Solo aplica a Airbnb con USD
+    if (res.platform !== Platform.Airbnb || !res.usdAmount) {
+      return null; // No aplica recálculo
+    }
   
-  // Tasa de pago (la que el admin configura para pagar)
-  const payoutRate = payoutRateSource === 'trm' 
-    ? marketExchangeRate 
-    : manualExchangeRate;
-  
-  // Recalcular COP con la nueva tasa
-  const recalculatedCOP = res.usdAmount * payoutRate;
-  
-  // Comisión se calcula sobre el ORIGINAL
-  const commission = originalCOP * (prop.commissionRate / 100);
-  
-  // Pago al dueño con tasa de pago
-  const ownerPayoutOriginal = originalCOP - commission;
-  const ownerPayoutRecalculated = recalculatedCOP - commission;
-  
-  // Diferencia (ganancia/pérdida por cambio de tasa)
-  const rateDifference = recalculatedCOP - originalCOP;
-  
-  return {
-    originalRate,
-    payoutRate,
-    originalCOP,
-    recalculatedCOP,
-    commission,
-    ownerPayoutOriginal,
-    ownerPayoutRecalculated,
-    rateDifference,
-    usdAmount: res.usdAmount
+    // Tasa original con la que se registró
+    const originalRate = res.exchangeRate || 0;
+    const originalCOP = res.usdAmount * originalRate;
+
+    // Tasa de pago (la que el admin configura para pagar)
+    const payoutRate = payoutRateSource === 'trm'
+      ? marketExchangeRate
+      : manualExchangeRate;
+
+    // Recalcular COP con la nueva tasa
+    const recalculatedCOP = res.usdAmount * payoutRate;
+
+    // Comisión se calcula sobre el ORIGINAL
+    const commission = originalCOP * (prop.commissionRate / 100);
+
+    // Pago al dueño con tasa de pago
+    const ownerPayoutRecalculated = recalculatedCOP - commission;
+
+    return {
+      originalCOP,
+      recalculatedCOP,
+      commission,
+      ownerPayoutRecalculated,
+    };
   };
-};
 
   // ✅✅✅ AQUÍ VA EL PASO 2 (NUEVA FUNCIÓN) ✅✅✅
 // NUEVO: Calcula la liquidación final con tasa personalizada
@@ -564,6 +550,19 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
   });
 
   return result;
+};
+
+const calculateOwnerPayout = (res: Reservation, prop: Property) => {
+    // Standard non-Airbnb calculation
+    if (res.platform !== Platform.Airbnb || !res.usdAmount || !useCustomRateForPayouts) {
+        const copValue = getAirbnbCopValue(res);
+        const commission = copValue * (prop.commissionRate / 100);
+        return copValue - commission;
+    }
+
+    // Recalculation logic for Airbnb USD reservations
+    const recalc = recalculateAirbnbPayout(res, prop);
+    return recalc ? recalc.ownerPayoutRecalculated : 0;
 };
 
   const handleSaveProperty = (prop: Property) => {
@@ -2221,7 +2220,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                 {activeTab === 'reservations' && renderReservations()}
                 {activeTab === 'reports' && renderReports()}
                 {activeTab === 'settings' && renderSettings()}
-                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} />}
+                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} calculateOwnerPayout={calculateOwnerPayout} />}
             </main>
         </div>
       </div>
