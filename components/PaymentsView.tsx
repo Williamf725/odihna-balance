@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Reservation, Property, OwnerPayment, Platform } from '../types';
-import { Wallet, ChevronRight, CheckCircle2, History, AlertCircle, DollarSign, Calendar, FileText, X, Trash2 } from 'lucide-react';
+import { Wallet, ChevronRight, CheckCircle2, History, AlertCircle, DollarSign, Calendar, FileText, X, Trash2, Globe } from 'lucide-react';
 
 interface PaymentsViewProps {
   properties: Property[];
@@ -9,6 +9,8 @@ interface PaymentsViewProps {
   onAddPayment: (payment: OwnerPayment) => void;
   onDeletePayment: (paymentId: string) => void;
   getAirbnbCopValue: (res: Reservation) => number;
+  currentLiquidationRate: number;
+  isLiquidationEnabled: boolean;
 }
 
 const safeId = () => {
@@ -31,7 +33,7 @@ const formatCOP = (amount: number) => {
 };
 
 const PaymentsView: React.FC<PaymentsViewProps> = ({ 
-    properties, reservations, payments, onAddPayment, onDeletePayment, getAirbnbCopValue 
+    properties, reservations, payments, onAddPayment, onDeletePayment, getAirbnbCopValue, currentLiquidationRate, isLiquidationEnabled
 }) => {
     const [viewMode, setViewMode] = useState<'pending' | 'history'>('pending');
     
@@ -105,7 +107,8 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
             amountPaid: manualAmount,
             expectedAmount: data.totalPayout,
             reservationIds: data.reservations.map(r => r.id),
-            notes: paymentNotes
+            notes: paymentNotes,
+            exchangeRate: isLiquidationEnabled ? currentLiquidationRate : undefined
         };
 
         onAddPayment(newPayment);
@@ -195,6 +198,11 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                             <div className="mb-6">
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total a Pagar</p>
                                 <p className="text-2xl font-bold text-emerald-600">{formatCOP(data.totalPayout)}</p>
+                                {isLiquidationEnabled && (
+                                    <div className="mt-2 text-[10px] bg-purple-50 text-purple-700 px-2 py-1 rounded-lg inline-flex items-center gap-1 border border-purple-100">
+                                        <Globe size={10} /> Tasa Liq.: {formatCOP(currentLiquidationRate)}
+                                    </div>
+                                )}
                             </div>
 
                             <button 
@@ -216,6 +224,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                                     <th className="px-6 py-4">Propietario</th>
                                     <th className="px-6 py-4">Reservas</th>
                                     <th className="px-6 py-4">Calculado</th>
+                                    <th className="px-6 py-4">Tasa (USD)</th>
                                     <th className="px-6 py-4">Pagado Real</th>
                                     <th className="px-6 py-4">Notas</th>
                                     <th className="px-6 py-4 text-right">Acción</th>
@@ -224,7 +233,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                             <tbody className="divide-y divide-slate-100">
                                 {payments.length === 0 && (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
+                                        <td colSpan={8} className="px-6 py-8 text-center text-slate-400">
                                             No hay historial de pagos registrados.
                                         </td>
                                     </tr>
@@ -237,6 +246,9 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                                             <span className="bg-slate-100 px-2 py-1 rounded-md">{pay.reservationIds.length} res.</span>
                                         </td>
                                         <td className="px-6 py-4 text-slate-400 text-sm line-through decoration-slate-300">{formatCOP(pay.expectedAmount)}</td>
+                                        <td className="px-6 py-4 text-slate-500 text-xs font-mono">
+                                            {pay.exchangeRate ? formatCOP(pay.exchangeRate) : '-'}
+                                        </td>
                                         <td className="px-6 py-4 font-bold text-emerald-600">{formatCOP(pay.amountPaid)}</td>
                                         <td className="px-6 py-4 text-slate-500 text-sm italic max-w-xs truncate">{pay.notes || '-'}</td>
                                         <td className="px-6 py-4 text-right">
@@ -280,6 +292,11 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                                 <div>
                                     <p className="text-xs text-emerald-600 font-bold uppercase">Monto Calculado (Reservas)</p>
                                     <p className="text-sm text-emerald-800">{pendingByOwner[selectedOwner].count} reservas seleccionadas</p>
+                                    {isLiquidationEnabled && (
+                                        <div className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1">
+                                            <Globe size={10} /> Tasa: {formatCOP(currentLiquidationRate)}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="text-xl font-bold text-emerald-700">
                                     {formatCOP(pendingByOwner[selectedOwner].totalPayout)}

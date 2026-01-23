@@ -436,6 +436,20 @@ const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manu
  const getAirbnbCopValue = (res: Reservation) => {
     // Para NO-Airbnb, siempre usar totalAmount
     if (res.platform !== Platform.Airbnb) return res.totalAmount;
+
+    // ✅ LÓGICA PROTEGIDA: Si la reserva YA FUE PAGADA, se debe respetar su valor histórico
+    if (res.paymentId) {
+        if (res.exchangeRate && res.usdAmount) return res.usdAmount * res.exchangeRate;
+        return res.totalAmount;
+    }
+
+    // ✅ LÓGICA DE LIQUIDACIÓN GLOBAL (NUEVA PRIORIDAD)
+    // Si el usuario activó la "Liquidación Final", forzamos el uso de esa tasa para todo (Dashboard, Pagos, Reportes).
+    // Esto sobrescribe incluso la tasa histórica guardada en la reserva.
+    if (useLiquidationRate && res.usdAmount) {
+         const rateToUse = liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate;
+         return res.usdAmount * rateToUse;
+    }
     
     // Para Airbnb: Si tiene tasa específica, usarla
     if (res.exchangeRate && res.usdAmount) {
@@ -601,10 +615,20 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       setSaveState('pending');
       setPayments(prev => [...prev, payment]);
       
-      // Update reservations to mark them as paid
+      // Update reservations to mark them as paid AND freeze their exchange rate if applicable
       setReservations(prev => prev.map(r => {
           if (payment.reservationIds.includes(r.id)) {
-              return { ...r, paymentId: payment.id };
+              // Create update object
+              let update: Partial<Reservation> = { paymentId: payment.id };
+
+              // FREEZE LOGIC: If this payment used a specific liquidation rate, burn it into the reservation history
+              // This ensures that even if we turn off the global toggle later, this reservation stays fixed at this rate.
+              if (payment.exchangeRate && r.platform === Platform.Airbnb && r.usdAmount) {
+                  update.exchangeRate = payment.exchangeRate;
+                  update.totalAmount = r.usdAmount * payment.exchangeRate; // Update definitive COP total
+              }
+
+              return { ...r, ...update };
           }
           return r;
       }));
@@ -2228,7 +2252,18 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                 {activeTab === 'reservations' && renderReservations()}
                 {activeTab === 'reports' && renderReports()}
                 {activeTab === 'settings' && renderSettings()}
-                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} />}
+                {activeTab === 'payments' && (
+                    <PaymentsView
+                        properties={properties}
+                        reservations={reservations}
+                        payments={payments}
+                        onAddPayment={handleAddPayment}
+                        onDeletePayment={handleDeletePayment}
+                        getAirbnbCopValue={getAirbnbCopValue}
+                        currentLiquidationRate={liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate}
+                        isLiquidationEnabled={useLiquidationRate}
+                    />
+                )}
             </main>
         </div>
       </div>

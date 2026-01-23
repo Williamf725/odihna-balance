@@ -49,6 +49,7 @@ export interface OwnerPayment {
   expectedAmount: number; // The calculated sum of reservations
   reservationIds: string[]; // List of reservations covered
   notes?: string;
+  exchangeRate?: number; // The rate used when this payment was finalized
 }
 
 export interface MonthlyStats {
