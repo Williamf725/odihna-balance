@@ -879,7 +879,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
   });
   
   return { totalRevenue, myEarnings, ownerPayouts };
-}, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate]);
+}, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate, useLiquidationRate, liquidationRateType]);
 
 
   const revenueByPropertyData = useMemo(() => {
@@ -889,7 +889,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
             .reduce((sum, r) => sum + getAirbnbCopValue(r), 0);
           return { name: p.name, revenue, id: p.id };
       });
-  }, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate]);
+  }, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate, useLiquidationRate, liquidationRateType]);
 
   const platformData = useMemo(() => {
     const counts: Record<string, number> = {};
