@@ -345,8 +345,8 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
             {/* PAYMENT MODAL */}
             {paymentModalOpen && selectedOwner && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in overflow-hidden">
-                        <div className="bg-emerald-600 p-6 text-white flex justify-between items-start">
+                    <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-fade-in overflow-hidden max-h-[85vh] flex flex-col">
+                        <div className="bg-emerald-600 p-6 text-white flex justify-between items-start flex-shrink-0">
                             <div>
                                 <h3 className="text-lg font-bold opacity-90">Registrar Pago</h3>
                                 <h2 className="text-2xl font-bold">{selectedOwner}</h2>
@@ -356,7 +356,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                             </button>
                         </div>
                         
-                        <div className="p-6 space-y-6">
+                        <div className="p-6 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
                             {/* Summary Box */}
                             <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 flex justify-between items-center">
                                 <div>
@@ -424,7 +424,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                             {/* List of included reservations */}
                             <div className="border-t border-slate-100 pt-4">
                                 <p className="text-xs font-bold text-slate-500 uppercase mb-2">Detalle de Reservas</p>
-                                <div className="max-h-64 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                <div className="space-y-2 pr-2">
                                     {pendingByOwner[selectedOwner].reservations.map(res => {
                                         const prop = properties.find(p => p.id === res.propertyId);
                                         const isMonthly = res.reservationType === 'Monthly';
@@ -463,7 +463,9 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                                     })}
                                 </div>
                             </div>
+                        </div>
 
+                        <div className="p-6 pt-4 border-t border-slate-100 bg-white flex-shrink-0">
                             <button 
                                 onClick={handleConfirmPayment}
                                 className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-lg hover:bg-emerald-700 transition-transform active:scale-95 shadow-lg shadow-emerald-200"
