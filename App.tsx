@@ -856,30 +856,39 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
     const prop = visibleProperties.find(p => p.id === r.propertyId);
     if (prop) {
       const isMonthly = r.reservationType === ReservationType.Monthly;
-      
+      let calculatedPayout = 0;
+      let reservationRevenue = 0;
+
       if (isMonthly) {
         // ✅ RESERVA MENSUAL
-        const monthlyTotal = r.totalAmount || 0;
-        const expensesAndOwnerPay = r.monthlyExpensesAndOwnerPay || 0;
-        const myProfit = monthlyTotal - expensesAndOwnerPay;
-        
-        totalRevenue += monthlyTotal;
-        myEarnings += myProfit;
-        ownerPayouts += expensesAndOwnerPay;
+        reservationRevenue = r.totalAmount || 0;
+        calculatedPayout = r.monthlyExpensesAndOwnerPay || 0;
       } else {
         // ✅ RESERVA ESTÁNDAR
         const copValue = getAirbnbCopValue(r);
         const commission = copValue * (prop.commissionRate / 100);
-        
-        totalRevenue += copValue;
-        myEarnings += commission;
-        ownerPayouts += (copValue - commission);
+        reservationRevenue = copValue;
+        calculatedPayout = copValue - commission;
       }
+
+      // Check if PAID and adjust proportionally if amount differed
+      let finalPayout = calculatedPayout;
+      if (r.paymentId) {
+          const payment = payments.find(p => p.id === r.paymentId);
+          if (payment && payment.expectedAmount > 0) {
+              const ratio = payment.amountPaid / payment.expectedAmount;
+              finalPayout = calculatedPayout * ratio;
+          }
+      }
+
+      totalRevenue += reservationRevenue;
+      ownerPayouts += finalPayout;
+      myEarnings += (reservationRevenue - finalPayout);
     }
   });
   
   return { totalRevenue, myEarnings, ownerPayouts };
-}, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate, useLiquidationRate, liquidationRateType]);
+}, [visibleProperties, monthlyReservations, manualExchangeRate, marketExchangeRate, useLiquidationRate, liquidationRateType, payments]);
 
 
   const revenueByPropertyData = useMemo(() => {
