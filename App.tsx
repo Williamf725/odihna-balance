@@ -47,16 +47,24 @@ export const generateId = () => {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 };
 
-// --- Colors (Luxury Theme) ---
+// --- Colors (Luxury Theme & High Contrast) ---
 const COLORS = [
   '#d4af37', // Metallic Gold
-  '#f59e0b', // Amber
-  '#10b981', // Emerald (Money)
   '#3b82f6', // Blue
+  '#10b981', // Emerald
+  '#ef4444', // Red
   '#a855f7', // Purple
+  '#f97316', // Orange
+  '#06b6d4', // Cyan
   '#ec4899', // Pink
+  '#84cc16', // Lime
   '#6366f1', // Indigo
-  '#84cc16'  // Lime
+  '#14b8a6', // Teal
+  '#f43f5e', // Rose
+  '#eab308', // Yellow
+  '#8b5cf6', // Violet
+  '#0ea5e9', // Sky
+  '#22c55e', // Green
 ];
 
 const getColorForId = (id: string) => {
@@ -130,9 +138,6 @@ function App() {
   // ✅ NUEVO: Control de tasa para liquidación final
 const [useLiquidationRate, setUseLiquidationRate] = useState(false);
 const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
-  // ✅ NUEVO: Estados para recálculo de tasa Airbnb en reportes personalizados
-const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
-const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
  
   // Editing State
   const [editingProperty, setEditingProperty] = useState<Property | undefined>(undefined);
@@ -513,48 +518,6 @@ const getAirbnbDetails = (res: Reservation) => {
 
   
   const getAirbnbEffectiveRate = () => Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
-  
-// ✅ NUEVO: Helper para recalcular pago a dueño con tasa diferente
-const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
-  // Solo aplica a Airbnb con USD
-  if (res.platform !== Platform.Airbnb || !res.usdAmount) {
-    return null; // No aplica recálculo
-  }
-
-  // Tasa original con la que se registró
-  const originalRate = res.exchangeRate || 0;
-  const originalCOP = res.usdAmount * originalRate;
-  
-  // Tasa de pago (la que el admin configura para pagar)
-  const payoutRate = payoutRateSource === 'trm' 
-    ? marketExchangeRate 
-    : manualExchangeRate;
-  
-  // Recalcular COP con la nueva tasa
-  const recalculatedCOP = res.usdAmount * payoutRate;
-  
-  // Comisión se calcula sobre el ORIGINAL
-  const commission = originalCOP * (prop.commissionRate / 100);
-  
-  // Pago al dueño con tasa de pago
-  const ownerPayoutOriginal = originalCOP - commission;
-  const ownerPayoutRecalculated = recalculatedCOP - commission;
-  
-  // Diferencia (ganancia/pérdida por cambio de tasa)
-  const rateDifference = recalculatedCOP - originalCOP;
-  
-  return {
-    originalRate,
-    payoutRate,
-    originalCOP,
-    recalculatedCOP,
-    commission,
-    ownerPayoutOriginal,
-    ownerPayoutRecalculated,
-    rateDifference,
-    usdAmount: res.usdAmount
-  };
-};
 
   // ✅✅✅ AQUÍ VA EL PASO 2 (NUEVA FUNCIÓN) ✅✅✅
 // NUEVO: Calcula la liquidación final con tasa personalizada
@@ -988,122 +951,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       </div>
     </div>
   );
-    {/* ✅ NUEVO: PANEL DE CONFIGURACIÓN DE TASA DE CAMBIO PARA AIRBNB */}
-    {isAdmin && (
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-primary-500/30">
-        <div className="flex items-start gap-3 mb-4">
-          <div className="p-2 bg-primary-500/20 text-primary-500 rounded-lg">
-            <DollarSign size={20} />
-          </div>
-          <div>
-            <h3 className="font-bold text-zinc-100 text-lg">
-              Recálculo de Tasa Airbnb (Pago a Dueños)
-            </h3>
-            <p className="text-sm text-zinc-400 mt-1">
-              Aplica una tasa diferente para calcular el pago final a dueños en reservas USD de Airbnb
-            </p>
-          </div>
-        </div>
-
-        {/* Toggle Principal */}
-        <div className="flex items-center gap-3 p-4 bg-zinc-950 rounded-xl border border-zinc-800 mb-4">
-          <input 
-            type="checkbox" 
-            id="useCustomRate"
-            checked={useCustomRateForPayouts}
-            onChange={(e) => setUseCustomRateForPayouts(e.target.checked)}
-            className="w-5 h-5 text-primary-500 rounded focus:ring-2 focus:ring-primary-500 bg-zinc-900 border-zinc-700"
-          />
-          <label htmlFor="useCustomRate" className="flex-1 cursor-pointer">
-            <div className="font-semibold text-zinc-200">
-              Activar Recálculo de Tasa para Pagos
-            </div>
-            <div className="text-xs text-zinc-500 mt-0.5">
-              Los pagos a dueños se calcularán con la tasa que elijas abajo
-            </div>
-          </label>
-        </div>
-
-        {/* Selector de Tasa */}
-        {useCustomRateForPayouts && (
-          <div className="space-y-3 animate-fade-in">
-            <label className="block text-sm font-medium text-zinc-400 mb-2">
-              ¿Qué tasa usar para el pago?
-            </label>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* Opción Manual */}
-              <button
-                onClick={() => setPayoutRateSource('manual')}
-                className={`p-4 rounded-xl border transition-all text-left ${
-                  payoutRateSource === 'manual'
-                    ? 'border-primary-500 bg-primary-500/10 shadow-md'
-                    : 'border-zinc-700 bg-zinc-950 hover:border-primary-500/50'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    payoutRateSource === 'manual' 
-                      ? 'border-primary-500 bg-primary-500'
-                      : 'border-zinc-600'
-                  }`}>
-                    {payoutRateSource === 'manual' && (
-                      <div className="w-2 h-2 bg-black rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-semibold text-zinc-200">Tasa Manual</span>
-                </div>
-                <div className="text-2xl font-bold text-primary-500 mb-1">
-                  ${manualExchangeRate.toFixed(2)}
-                </div>
-                <div className="text-xs text-zinc-500">
-                  Por dólar (configurado por ti)
-                </div>
-              </button>
-
-              {/* Opción TRM */}
-              <button
-                onClick={() => setPayoutRateSource('trm')}
-                className={`p-4 rounded-xl border transition-all text-left ${
-                  payoutRateSource === 'trm'
-                    ? 'border-blue-500 bg-blue-900/20 shadow-md'
-                    : 'border-zinc-700 bg-zinc-950 hover:border-blue-500/50'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    payoutRateSource === 'trm' 
-                      ? 'border-blue-500 bg-blue-500'
-                      : 'border-zinc-600'
-                  }`}>
-                    {payoutRateSource === 'trm' && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-semibold text-zinc-200">TRM Oficial</span>
-                </div>
-                <div className="text-2xl font-bold text-blue-400 mb-1">
-                  ${marketExchangeRate.toFixed(2)}
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {rateSource}
-                </div>
-              </button>
-            </div>
-
-            {/* Info Box */}
-            <div className="p-3 bg-amber-900/20 border border-amber-900/50 rounded-lg text-sm text-amber-200 flex items-start gap-2 mt-4">
-              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-500" />
-              <div>
-                <strong>Cómo funciona:</strong> Las reservas de Airbnb se registraron con la tasa del día. 
-                Al activar esto, los <strong>pagos a dueños</strong> se recalcularán usando la tasa que elijas 
-                ({payoutRateSource === 'manual' ? 'Manual' : 'TRM'}), reflejando la diferencia cambiaria real.
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    )}
 
  const renderProperties = () => {
   const filteredProperties = visibleProperties.filter(p => 
@@ -1553,8 +1400,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       isPartial: boolean, 
       isExcluded: boolean, 
       commission: number, 
-      calculatedCop: number,
-      recalcData?: ReturnType<typeof recalculateAirbnbPayout>
+      calculatedCop: number
     }[] 
   }> = {};
 
@@ -1572,7 +1418,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
 
       let copValue = 0;
       let commission = 0;
-      let recalcData = null;
 
       if (isMonthly) {
         copValue = r.totalAmount || 0;
@@ -1581,10 +1426,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
       } else {
         copValue = getAirbnbCopValue(r);
         commission = copValue * (prop.commissionRate / 100);
-        
-        if (useCustomRateForPayouts && r.platform === Platform.Airbnb && r.usdAmount) {
-          recalcData = recalculateAirbnbPayout(r, prop);
-        }
       }
 
       ownerStats[prop.ownerName].reservations.push({
@@ -1592,18 +1433,12 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
         isPartial,
         isExcluded,
         commission,
-        calculatedCop: copValue,
-        recalcData
+        calculatedCop: copValue
       });
 
       if (!isExcluded) {
-        if (recalcData && useCustomRateForPayouts) {
-          ownerStats[prop.ownerName].revenue += recalcData.originalCOP;
-          ownerStats[prop.ownerName].payout += recalcData.ownerPayoutRecalculated;
-        } else {
-          ownerStats[prop.ownerName].revenue += copValue;
-          ownerStats[prop.ownerName].payout += (copValue - commission);
-        }
+        ownerStats[prop.ownerName].revenue += copValue;
+        ownerStats[prop.ownerName].payout += (copValue - commission);
       }
     }
   });
