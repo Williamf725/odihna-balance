@@ -9,6 +9,7 @@ interface PaymentsViewProps {
   onAddPayment: (payment: OwnerPayment) => void;
   onDeletePayment: (paymentId: string) => void;
   getAirbnbCopValue: (res: Reservation) => number;
+  calculateOwnerPayout: (res: Reservation, prop: Property) => number;
 }
 
 const safeId = () => {
@@ -31,9 +32,11 @@ const formatCOP = (amount: number) => {
 };
 
 const PaymentsView: React.FC<PaymentsViewProps> = ({ 
-    properties, reservations, payments, onAddPayment, onDeletePayment, getAirbnbCopValue 
+    properties, reservations, payments, onAddPayment, onDeletePayment, getAirbnbCopValue, calculateOwnerPayout
 }) => {
     const [viewMode, setViewMode] = useState<'pending' | 'history'>('pending');
+    const [dateFilterStart, setDateFilterStart] = useState('');
+    const [dateFilterEnd, setDateFilterEnd] = useState('');
     
     // Payment Modal State
     const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
@@ -46,19 +49,21 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
     const pendingByOwner = useMemo<Record<string, { totalPayout: number, count: number, reservations: Reservation[] }>>(() => {
         const groups: Record<string, { totalPayout: number, count: number, reservations: Reservation[] }> = {};
         
-        reservations.forEach(res => {
-            // Check if reservation is unpaid (no paymentId)
-            if (res.paymentId) return;
+        const filteredReservations = reservations.filter(res => {
+            if (res.paymentId) return false; // Must be unpaid
+            if (dateFilterStart && res.checkInDate < dateFilterStart) return false;
+            if (dateFilterEnd && res.checkInDate > dateFilterEnd) return false;
+            return true;
+        });
 
+        filteredReservations.forEach(res => {
             const prop = properties.find(p => p.id === res.propertyId);
             if (!prop) return;
 
             const owner = prop.ownerName;
             
             // Calculate payout for this specific reservation
-            const copValue = getAirbnbCopValue(res);
-            const commission = copValue * (prop.commissionRate / 100);
-            const payout = copValue - commission;
+            const payout = calculateOwnerPayout(res, prop);
 
             if (!groups[owner]) {
                 groups[owner] = { totalPayout: 0, count: 0, reservations: [] };
@@ -70,7 +75,7 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
         });
 
         return groups;
-    }, [reservations, properties, getAirbnbCopValue]);
+    }, [reservations, properties, getAirbnbCopValue, dateFilterStart, dateFilterEnd, calculateOwnerPayout]);
 
     const openPaymentModal = (owner: string) => {
         const data = pendingByOwner[owner];
@@ -132,6 +137,30 @@ const PaymentsView: React.FC<PaymentsViewProps> = ({
                     </button>
                 </div>
             </div>
+
+            {/* Date Filters */}
+            {viewMode === 'pending' && (
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row gap-4 items-end">
+                    <div className="w-full sm:w-auto">
+                        <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Inicio</label>
+                        <input
+                            type="date"
+                            value={dateFilterStart}
+                            onChange={(e) => setDateFilterStart(e.target.value)}
+                            className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-700 shadow-sm"
+                        />
+                    </div>
+                    <div className="w-full sm:w-auto">
+                        <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Fecha Fin</label>
+                        <input
+                            type="date"
+                            value={dateFilterEnd}
+                            onChange={(e) => setDateFilterEnd(e.target.value)}
+                            className="bg-white w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-700 shadow-sm"
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Content */}
             {viewMode === 'pending' ? (

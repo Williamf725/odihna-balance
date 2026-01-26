@@ -117,12 +117,8 @@ function App() {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [excludedReservationIds, setExcludedReservationIds] = useState<Set<string>>(new Set());
-  // ✅ NUEVO: Control de tasa para liquidación final
-const [useLiquidationRate, setUseLiquidationRate] = useState(false);
-const [liquidationRateType, setLiquidationRateType] = useState<'manual' | 'trm'>('manual');
-  // ✅ NUEVO: Estados para recálculo de tasa Airbnb en reportes personalizados
-const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
-const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
+  const [useCustomRateForPayouts, setUseCustomRateForPayouts] = useState(false);
+  const [payoutRateSource, setPayoutRateSource] = useState<'manual' | 'trm'>('manual');
  
   // Editing State
   const [editingProperty, setEditingProperty] = useState<Property | undefined>(undefined);
@@ -467,103 +463,50 @@ const getAirbnbDetails = (res: Reservation) => {
 
   
   const getAirbnbEffectiveRate = () => Math.min(manualExchangeRate, marketExchangeRate > 0 ? marketExchangeRate : manualExchangeRate);
+
+  const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
+    // Solo aplica a Airbnb con USD
+    if (res.platform !== Platform.Airbnb || !res.usdAmount) {
+      return null; // No aplica recálculo
+    }
   
-// ✅ NUEVO: Helper para recalcular pago a dueño con tasa diferente
-const recalculateAirbnbPayout = (res: Reservation, prop: Property) => {
-  // Solo aplica a Airbnb con USD
-  if (res.platform !== Platform.Airbnb || !res.usdAmount) {
-    return null; // No aplica recálculo
-  }
+    // Tasa original con la que se registró
+    const originalRate = res.exchangeRate || 0;
+    const originalCOP = res.usdAmount * originalRate;
 
-  // Tasa original con la que se registró
-  const originalRate = res.exchangeRate || 0;
-  const originalCOP = res.usdAmount * originalRate;
-  
-  // Tasa de pago (la que el admin configura para pagar)
-  const payoutRate = payoutRateSource === 'trm' 
-    ? marketExchangeRate 
-    : manualExchangeRate;
-  
-  // Recalcular COP con la nueva tasa
-  const recalculatedCOP = res.usdAmount * payoutRate;
-  
-  // Comisión se calcula sobre el ORIGINAL
-  const commission = originalCOP * (prop.commissionRate / 100);
-  
-  // Pago al dueño con tasa de pago
-  const ownerPayoutOriginal = originalCOP - commission;
-  const ownerPayoutRecalculated = recalculatedCOP - commission;
-  
-  // Diferencia (ganancia/pérdida por cambio de tasa)
-  const rateDifference = recalculatedCOP - originalCOP;
-  
-  return {
-    originalRate,
-    payoutRate,
-    originalCOP,
-    recalculatedCOP,
-    commission,
-    ownerPayoutOriginal,
-    ownerPayoutRecalculated,
-    rateDifference,
-    usdAmount: res.usdAmount
-  };
-};
+    // Tasa de pago (la que el admin configura para pagar)
+    const payoutRate = payoutRateSource === 'trm'
+      ? marketExchangeRate
+      : manualExchangeRate;
 
-  // ✅✅✅ AQUÍ VA EL PASO 2 (NUEVA FUNCIÓN) ✅✅✅
-// NUEVO: Calcula la liquidación final con tasa personalizada
-const calculateLiquidation = (ownerStats: Record<string, any>) => {
-  if (!useLiquidationRate) return null;
+    // Recalcular COP con la nueva tasa
+    const recalculatedCOP = res.usdAmount * payoutRate;
 
-  const liquidationRate = liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate;
-  const result: Record<string, {
-    originalPayout: number;
-    liquidationPayout: number;
-    difference: number;
-    airbnbCount: number;
-  }> = {};
+    // Comisión se calcula sobre el ORIGINAL
+    const commission = originalCOP * (prop.commissionRate / 100);
 
-  Object.entries(ownerStats).forEach(([owner, data]: [string, any]) => {
-    let originalPayout = 0;
-    let liquidationPayout = 0;
-    let airbnbCount = 0;
+    // Pago al dueño con tasa de pago
+    const ownerPayoutRecalculated = recalculatedCOP - commission;
 
-    data.reservations.forEach((item: any) => {
-      if (item.isExcluded) return;
-
-      const res = item.res;
-      const prop = visibleProperties.find(p => p.id === res.propertyId);
-      if (!prop) return;
-
-      // Solo procesar Airbnb con USD
-      if (res.platform === Platform.Airbnb && res.usdAmount) {
-        airbnbCount++;
-
-        // Cálculo con tasa ORIGINAL
-        const originalCOP = res.usdAmount * (res.exchangeRate || 0);
-        const commission = originalCOP * (prop.commissionRate / 100);
-        originalPayout += (originalCOP - commission);
-
-        // Cálculo con tasa de LIQUIDACIÓN
-        const liquidationCOP = res.usdAmount * liquidationRate;
-        const liquidationCommission = liquidationCOP * (prop.commissionRate / 100);
-        liquidationPayout += (liquidationCOP - liquidationCommission);
-      } else {
-        // Para no-Airbnb, usar valor original (sin cambios)
-        originalPayout += item.calculatedCop - item.commission;
-        liquidationPayout += item.calculatedCop - item.commission;
-      }
-    });
-
-    result[owner] = {
-      originalPayout,
-      liquidationPayout,
-      difference: liquidationPayout - originalPayout,
-      airbnbCount
+    return {
+      originalCOP,
+      recalculatedCOP,
+      commission,
+      ownerPayoutRecalculated,
     };
-  });
+  };
 
-  return result;
+const calculateOwnerPayout = (res: Reservation, prop: Property) => {
+    // Standard non-Airbnb calculation
+    if (res.platform !== Platform.Airbnb || !res.usdAmount || !useCustomRateForPayouts) {
+        const copValue = getAirbnbCopValue(res);
+        const commission = copValue * (prop.commissionRate / 100);
+        return copValue - commission;
+    }
+
+    // Recalculation logic for Airbnb USD reservations
+    const recalc = recalculateAirbnbPayout(res, prop);
+    return recalc ? recalc.ownerPayoutRecalculated : 0;
 };
 
   const handleSaveProperty = (prop: Property) => {
@@ -904,141 +847,142 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
   // --- Render Helpers (Consolidated) ---
 
   const renderDashboard = () => (
-    <div className="space-y-6 animate-fade-in pb-24 lg:pb-12">
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-        <h2 className="font-bold text-slate-700 flex items-center gap-2"><Calendar size={20} className="text-primary-500"/> Resumen Mensual</h2>
-        <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-500">Filtrar mes:</span>
-            <input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-white px-4 py-2 border border-slate-200 rounded-xl text-slate-700 font-medium outline-none focus:ring-2 focus:ring-primary-500 transition-all shadow-sm"/>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><TrendingUp size={24} /></div><div><p className="text-sm text-slate-500 font-medium">Ingresos - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.totalRevenue)}</h3></div></div></div>
-        {isAdmin && <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><DollarSign size={24} /></div><div><p className="text-sm text-slate-500 font-medium">Mis Ganancias - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.myEarnings)}</h3></div></div></div>}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Users size={24} /></div><div><p className="text-sm text-slate-500 font-medium">{isAdmin ? 'Pagos a Dueños' : 'Mi Pago Final'} - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.ownerPayouts)}</h3></div></div></div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="text-lg font-bold text-slate-800 mb-4">Ingresos ({formatMonthYear(currentMonth)})</h3><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><RechartsBarChart data={revenueByPropertyData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" tick={{fontSize: 10}} interval={0} /><YAxis tick={{fontSize: 12}} /><Tooltip formatter={(value: number) => formatCOP(value)} /><Bar dataKey="revenue" radius={[4, 4, 0, 0]}>{revenueByPropertyData.map((entry, index) => (<Cell key={`cell-${index}`} fill={getColorForId(entry.id)} />))}</Bar></RechartsBarChart></ResponsiveContainer></div></div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="text-lg font-bold text-slate-800 mb-4">Plataformas ({formatMonthYear(currentMonth)})</h3><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={platformData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{platformData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip /><Legend /></RechartsPieChart></ResponsiveContainer></div></div>
-      </div>
-    </div>
-  );
-    {/* ✅ NUEVO: PANEL DE CONFIGURACIÓN DE TASA DE CAMBIO PARA AIRBNB */}
-    {isAdmin && (
-      <div className="bg-gradient-to-br from-purple-50 to-blue-50 p-6 rounded-2xl border-2 border-purple-200">
-        <div className="flex items-start gap-3 mb-4">
-          <div className="p-2 bg-purple-600 text-white rounded-lg">
-            <DollarSign size={20} />
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-800 text-lg">
-              Recálculo de Tasa Airbnb (Pago a Dueños)
-            </h3>
-            <p className="text-sm text-slate-600 mt-1">
-              Aplica una tasa diferente para calcular el pago final a dueños en reservas USD de Airbnb
-            </p>
+    <>
+      <div className="space-y-6 animate-fade-in pb-24 lg-pb-12">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+          <h2 className="font-bold text-slate-700 flex items-center gap-2"><Calendar size={20} className="text-primary-500"/> Resumen Mensual</h2>
+          <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-500">Filtrar mes:</span>
+              <input type="month" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)} className="bg-white px-4 py-2 border border-slate-200 rounded-xl text-slate-700 font-medium outline-none focus:ring-2 focus:ring-primary-500 transition-all shadow-sm"/>
           </div>
         </div>
-
-        {/* Toggle Principal */}
-        <div className="flex items-center gap-3 p-4 bg-white rounded-xl border border-purple-200 mb-4">
-          <input 
-            type="checkbox" 
-            id="useCustomRate"
-            checked={useCustomRateForPayouts}
-            onChange={(e) => setUseCustomRateForPayouts(e.target.checked)}
-            className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
-          />
-          <label htmlFor="useCustomRate" className="flex-1 cursor-pointer">
-            <div className="font-semibold text-slate-800">
-              Activar Recálculo de Tasa para Pagos
-            </div>
-            <div className="text-xs text-slate-500 mt-0.5">
-              Los pagos a dueños se calcularán con la tasa que elijas abajo
-            </div>
-          </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><TrendingUp size={24} /></div><div><p className="text-sm text-slate-500 font-medium">Ingresos - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.totalRevenue)}</h3></div></div></div>
+          {isAdmin && <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><DollarSign size={24} /></div><div><p className="text-sm text-slate-500 font-medium">Mis Ganancias - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.myEarnings)}</h3></div></div></div>}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><div className="flex items-center gap-4"><div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Users size={24} /></div><div><p className="text-sm text-slate-500 font-medium">{isAdmin ? 'Pagos a Dueños' : 'Mi Pago Final'} - <span className="capitalize">{formatMonthYear(currentMonth)}</span></p><h3 className="text-2xl font-bold text-slate-800">{formatCOP(stats.ownerPayouts)}</h3></div></div></div>
         </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="text-lg font-bold text-slate-800 mb-4">Ingresos ({formatMonthYear(currentMonth)})</h3><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><RechartsBarChart data={revenueByPropertyData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" tick={{fontSize: 10}} interval={0} /><YAxis tick={{fontSize: 12}} /><Tooltip formatter={(value: number) => formatCOP(value)} /><Bar dataKey="revenue" radius={[4, 4, 0, 0]}>{revenueByPropertyData.map((entry, index) => (<Cell key={`cell-${index}`} fill={getColorForId(entry.id)} />))}</Bar></RechartsBarChart></ResponsiveContainer></div></div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"><h3 className="text-lg font-bold text-slate-800 mb-4">Plataformas ({formatMonthYear(currentMonth)})</h3><div className="h-64 w-full"><ResponsiveContainer width="100%" height="100%"><RechartsPieChart><Pie data={platformData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{platformData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}</Pie><Tooltip /><Legend /></RechartsPieChart></ResponsiveContainer></div></div>
+        </div>
+      </div>
+      {isAdmin && (
+        <div className="bg-gradient-to-br from-purple-50 to-blue-50 p-6 rounded-2xl border-2 border-purple-200">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="p-2 bg-purple-600 text-white rounded-lg">
+              <DollarSign size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 text-lg">
+                Recálculo de Tasa Airbnb (Pago a Dueños)
+              </h3>
+              <p className="text-sm text-slate-600 mt-1">
+                Aplica una tasa diferente para calcular el pago final a dueños en reservas USD de Airbnb
+              </p>
+            </div>
+          </div>
 
-        {/* Selector de Tasa */}
-        {useCustomRateForPayouts && (
-          <div className="space-y-3 animate-fade-in">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              ¿Qué tasa usar para el pago?
+          {/* Toggle Principal */}
+          <div className="flex items-center gap-3 p-4 bg-white rounded-xl border border-purple-200 mb-4">
+            <input
+              type="checkbox"
+              id="useCustomRate"
+              checked={useCustomRateForPayouts}
+              onChange={(e) => setUseCustomRateForPayouts(e.target.checked)}
+              className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+            />
+            <label htmlFor="useCustomRate" className="flex-1 cursor-pointer">
+              <div className="font-semibold text-slate-800">
+                Activar Recálculo de Tasa para Pagos
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                Los pagos a dueños se calcularán con la tasa que elijas abajo
+              </div>
             </label>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {/* Opción Manual */}
-              <button
-                onClick={() => setPayoutRateSource('manual')}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
-                  payoutRateSource === 'manual'
-                    ? 'border-purple-500 bg-purple-50 shadow-md'
-                    : 'border-slate-200 bg-white hover:border-purple-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    payoutRateSource === 'manual' 
-                      ? 'border-purple-600 bg-purple-600' 
-                      : 'border-slate-300'
-                  }`}>
-                    {payoutRateSource === 'manual' && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-semibold text-slate-800">Tasa Manual</span>
-                </div>
-                <div className="text-2xl font-bold text-purple-600 mb-1">
-                  ${manualExchangeRate.toFixed(2)}
-                </div>
-                <div className="text-xs text-slate-500">
-                  Por dólar (configurado por ti)
-                </div>
-              </button>
+          </div>
 
-              {/* Opción TRM */}
-              <button
-                onClick={() => setPayoutRateSource('trm')}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
-                  payoutRateSource === 'trm'
-                    ? 'border-blue-500 bg-blue-50 shadow-md'
-                    : 'border-slate-200 bg-white hover:border-blue-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    payoutRateSource === 'trm' 
-                      ? 'border-blue-600 bg-blue-600' 
-                      : 'border-slate-300'
-                  }`}>
-                    {payoutRateSource === 'trm' && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-semibold text-slate-800">TRM Oficial</span>
-                </div>
-                <div className="text-2xl font-bold text-blue-600 mb-1">
-                  ${marketExchangeRate.toFixed(2)}
-                </div>
-                <div className="text-xs text-slate-500">
-                  {rateSource}
-                </div>
-              </button>
-            </div>
+          {/* Selector de Tasa */}
+          {useCustomRateForPayouts && (
+            <div className="space-y-3 animate-fade-in">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                ¿Qué tasa usar para el pago?
+              </label>
 
-            {/* Info Box */}
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2 mt-4">
-              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-              <div>
-                <strong>Cómo funciona:</strong> Las reservas de Airbnb se registraron con la tasa del día. 
-                Al activar esto, los <strong>pagos a dueños</strong> se recalcularán usando la tasa que elijas 
-                ({payoutRateSource === 'manual' ? 'Manual' : 'TRM'}), reflejando la diferencia cambiaria real.
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Opción Manual */}
+                <button
+                  onClick={() => setPayoutRateSource('manual')}
+                  className={`p-4 rounded-xl border-2 transition-all text-left ${
+                    payoutRateSource === 'manual'
+                      ? 'border-purple-500 bg-purple-50 shadow-md'
+                      : 'border-slate-200 bg-white hover:border-purple-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      payoutRateSource === 'manual'
+                        ? 'border-purple-600 bg-purple-600'
+                        : 'border-slate-300'
+                    }`}>
+                      {payoutRateSource === 'manual' && (
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-semibold text-slate-800">Tasa Manual</span>
+                  </div>
+                  <div className="text-2xl font-bold text-purple-600 mb-1">
+                    ${manualExchangeRate.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Por dólar (configurado por ti)
+                  </div>
+                </button>
+
+                {/* Opción TRM */}
+                <button
+                  onClick={() => setPayoutRateSource('trm')}
+                  className={`p-4 rounded-xl border-2 transition-all text-left ${
+                    payoutRateSource === 'trm'
+                      ? 'border-blue-500 bg-blue-50 shadow-md'
+                      : 'border-slate-200 bg-white hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      payoutRateSource === 'trm'
+                        ? 'border-blue-600 bg-blue-600'
+                        : 'border-slate-300'
+                    }`}>
+                      {payoutRateSource === 'trm' && (
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </div>
+                    <span className="font-semibold text-slate-800">TRM Oficial</span>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-600 mb-1">
+                    ${marketExchangeRate.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {rateSource}
+                  </div>
+                </button>
+              </div>
+
+              {/* Info Box */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2 mt-4">
+                <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong>Cómo funciona:</strong> Las reservas de Airbnb se registraron con la tasa del día.
+                  Al activar esto, los <strong>pagos a dueños</strong> se recalcularán usando la tasa que elijas
+                  ({payoutRateSource === 'manual' ? 'Manual' : 'TRM'}), reflejando la diferencia cambiaria real.
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    )}
+          )}
+        </div>
+      )}
+    </>
+  );
 
  const renderProperties = () => {
   const filteredProperties = visibleProperties.filter(p => 
@@ -1580,9 +1524,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
     }
   });
 
-  // Calcular liquidación con tasa personalizada
-  const liquidation = calculateLiquidation(ownerStats);
-
   return (
     <div className="space-y-6 pb-24 lg:pb-12">
       {/* Panel de Filtros de Fecha */}
@@ -1615,130 +1556,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
         </div>
       </div>
 
-      {/* Panel de Liquidación con Tasa Personalizada */}
-      {isAdmin && (
-        <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border-2 border-blue-300 shadow-lg">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="p-3 bg-blue-600 text-white rounded-xl shadow-md">
-              <DollarSign size={24} />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-                💰 Liquidación Final con Tasa Personalizada
-              </h3>
-              <p className="text-sm text-slate-600 mt-1">
-                Calcula el pago final a dueños usando una tasa de cambio diferente (solo afecta reservas Airbnb en USD)
-              </p>
-            </div>
-          </div>
-
-          {/* Toggle Principal */}
-          <div className="bg-white rounded-xl p-4 shadow-sm border-2 border-blue-200 mb-4">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={useLiquidationRate}
-                onChange={(e) => setUseLiquidationRate(e.target.checked)}
-                className="w-6 h-6 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-              />
-              <div className="flex-1">
-                <div className="font-bold text-slate-800 text-base">
-                  Activar Cálculo de Liquidación
-                </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  Los valores originales no se modifican. Solo se recalcula el pago final.
-                </div>
-              </div>
-            </label>
-          </div>
-
-          {/* Selector de Tasa */}
-          {useLiquidationRate && (
-            <div className="space-y-3 animate-fade-in">
-              <label className="block text-sm font-bold text-slate-700 mb-3">
-                📊 Selecciona la tasa para liquidación final:
-              </label>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Opción Manual */}
-                <button
-                  onClick={() => setLiquidationRateType('manual')}
-                  className={`group p-5 rounded-xl border-2 transition-all text-left ${
-                    liquidationRateType === 'manual'
-                      ? 'border-purple-500 bg-purple-50 shadow-lg scale-105'
-                      : 'border-slate-200 bg-white hover:border-purple-300 hover:shadow-md'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                      liquidationRateType === 'manual' 
-                        ? 'border-purple-600 bg-purple-600 scale-110' 
-                        : 'border-slate-300 group-hover:border-purple-400'
-                    }`}>
-                      {liquidationRateType === 'manual' && (
-                        <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
-                      )}
-                    </div>
-                    <span className="font-bold text-slate-800 text-lg">🎯 Tasa Manual</span>
-                  </div>
-                  <div className="text-3xl font-bold text-purple-600 mb-2">
-                    ${manualExchangeRate.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-xs text-slate-500 font-medium">
-                    COP por cada USD (configurado por ti)
-                  </div>
-                </button>
-
-                {/* Opción TRM */}
-                <button
-                  onClick={() => setLiquidationRateType('trm')}
-                  className={`group p-5 rounded-xl border-2 transition-all text-left ${
-                    liquidationRateType === 'trm'
-                      ? 'border-blue-500 bg-blue-50 shadow-lg scale-105'
-                      : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                      liquidationRateType === 'trm' 
-                        ? 'border-blue-600 bg-blue-600 scale-110' 
-                        : 'border-slate-300 group-hover:border-blue-400'
-                    }`}>
-                      {liquidationRateType === 'trm' && (
-                        <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
-                      )}
-                    </div>
-                    <span className="font-bold text-slate-800 text-lg">🏛️ TRM Oficial</span>
-                  </div>
-                  <div className="text-3xl font-bold text-blue-600 mb-2">
-                    ${marketExchangeRate.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-xs text-slate-500 font-medium">
-                    {rateSource}
-                  </div>
-                </button>
-              </div>
-
-              {/* Info Box */}
-              <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="text-sm text-amber-900">
-                    <strong className="font-bold">💡 Cómo funciona:</strong>
-                    <ul className="mt-2 space-y-1 ml-4 list-disc">
-                      <li>Las reservas de Airbnb se registraron con su tasa original</li>
-                      <li>Al activar esto, se <strong>recalcula el pago final</strong> usando la tasa: <strong>{liquidationRateType === 'manual' ? 'Manual' : 'TRM Oficial'}</strong></li>
-                      <li>Verás la <strong>diferencia</strong> (ganancia o pérdida) por el cambio de tasa</li>
-                      <li className="text-emerald-700 font-semibold">✅ Los valores originales NO se modifican</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Contenido Principal */}
       {(!customStartDate || !customEndDate) ? (
         <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
@@ -1768,51 +1585,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                   </div>
                 </div>
 
-                {/* Panel de Liquidación por Dueño */}
-                {useLiquidationRate && liquidation && liquidation[owner] && liquidation[owner].airbnbCount > 0 && (
-                  <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-4 border-b-2 border-blue-200">
-                    <div className="flex items-center gap-2 mb-3">
-                      <DollarSign size={18} className="text-blue-600" />
-                      <span className="font-bold text-slate-800 text-sm uppercase tracking-wide">
-                        💰 Liquidación Final con Tasa {liquidationRateType === 'manual' ? 'Manual' : 'TRM'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-white p-3 rounded-lg border border-blue-200">
-                        <div className="text-xs text-slate-600 mb-1">📋 Reservas Airbnb USD</div>
-                        <div className="text-lg font-bold text-blue-600">
-                          {liquidation[owner].airbnbCount}
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-3 rounded-lg border border-blue-200">
-                        <div className="text-xs text-slate-600 mb-1">💵 Pago con nueva tasa</div>
-                        <div className="text-lg font-bold text-blue-600">
-                          {formatCOP(liquidation[owner].liquidationPayout)}
-                        </div>
-                      </div>
-
-                      <div className={`p-3 rounded-lg border-2 ${
-                        liquidation[owner].difference > 0 
-                          ? 'bg-green-100 border-green-300' 
-                          : liquidation[owner].difference < 0
-                          ? 'bg-red-100 border-red-300'
-                          : 'bg-gray-100 border-gray-200'
-                      }`}>
-                        <div className="text-xs font-bold mb-1">
-                          {liquidation[owner].difference > 0 ? '📈 Ganancia' : liquidation[owner].difference < 0 ? '📉 Pérdida' : '➖ Sin cambio'}
-                        </div>
-                        <div className={`text-lg font-bold ${
-                          liquidation[owner].difference > 0 ? 'text-green-700' : 'text-red-700'
-                        }`}>
-                          {liquidation[owner].difference > 0 ? '+' : ''}{formatCOP(Math.abs(liquidation[owner].difference))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Tabla de Reservas */}
                 <div className="p-0 overflow-x-auto">
                   <table className="w-full text-left text-sm">
@@ -1821,26 +1593,12 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                         <th className="px-4 py-3 font-medium">Huesped / Plat.</th>
                         <th className="px-4 py-3 font-medium">Fechas</th>
                         <th className="px-4 py-3 font-medium text-right">Monto Original</th>
-                        {isAdmin && useLiquidationRate && (
-                          <th className="px-4 py-3 font-medium text-right bg-blue-50 text-blue-700 border-l-2 border-blue-200">
-                            <div className="flex items-center justify-end gap-1">
-                              <DollarSign size={14} />
-                              <span>Monto Recalculado</span>
-                            </div>
-                          </th>
-                        )}
                         {isAdmin && <th className="px-4 py-3 font-medium text-right text-red-400">Comisión</th>}
                         <th className="px-4 py-3 font-medium text-center">Estado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {data.reservations.map((item, idx) => {
-                        // Calcular valor recalculado para esta fila
-                        const recalculatedCOP = item.res.platform === Platform.Airbnb && item.res.usdAmount
-                          ? item.res.usdAmount * (liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate)
-                          : null;
-                        const difference = recalculatedCOP ? recalculatedCOP - item.calculatedCop : 0;
-
                         return (
                           <tr key={item.res.id} className={`${item.isExcluded ? 'bg-slate-50 opacity-60' : 'bg-white'} ${item.isPartial && !item.isExcluded ? 'bg-amber-50/50' : ''}`}>
                             {/* Columna Huésped */}
@@ -1886,37 +1644,6 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                                 )}
                               </div>
                             </td>
-
-                            {/* NUEVA COLUMNA: Monto Recalculado */}
-                            {isAdmin && useLiquidationRate && (
-                              <td className="px-4 py-3 text-right bg-gradient-to-br from-blue-50/50 to-purple-50/50 border-l-2 border-blue-200">
-                                {recalculatedCOP ? (
-                                  <div className="flex flex-col">
-                                    <span className="font-bold text-blue-700">
-                                      {formatCOP(recalculatedCOP)}
-                                    </span>
-                                    
-                                    <div className="text-[10px] space-y-0.5 mt-1">
-                                      <div className="text-blue-600 font-bold">
-                                        💱 {item.res.usdAmount?.toFixed(2)} USD
-                                      </div>
-                                      <div className="text-purple-600">
-                                        @ {(liquidationRateType === 'trm' ? marketExchangeRate : manualExchangeRate).toFixed(2)}
-                                      </div>
-                                      
-                                      {difference !== 0 && (
-                                        <div className={`font-semibold flex items-center gap-1 ${difference > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                          <span>{difference > 0 ? '📈' : '📉'}</span>
-                                          <span>{difference > 0 ? '+' : ''}{formatCOP(Math.abs(difference))}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <span className="text-xs text-slate-400">—</span>
-                                )}
-                              </td>
-                            )}
 
                             {/* Columna Comisión */}
                             {isAdmin && (
@@ -2221,7 +1948,7 @@ const calculateLiquidation = (ownerStats: Record<string, any>) => {
                 {activeTab === 'reservations' && renderReservations()}
                 {activeTab === 'reports' && renderReports()}
                 {activeTab === 'settings' && renderSettings()}
-                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} />}
+                {activeTab === 'payments' && <PaymentsView properties={properties} reservations={reservations} payments={payments} onAddPayment={handleAddPayment} onDeletePayment={handleDeletePayment} getAirbnbCopValue={getAirbnbCopValue} calculateOwnerPayout={calculateOwnerPayout} />}
             </main>
         </div>
       </div>
