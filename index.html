@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#0284c7" />
+    <meta name="theme-color" content="#09090b" />
     <meta name="description" content="Odihna Balance - Gestión de Alquileres" />
     <title>Odihna Balance</title>
     <link rel="manifest" href="/manifest.json" />
@@ -19,11 +19,16 @@
             },
             colors: {
               primary: {
-                50: '#f0f9ff',
-                100: '#e0f2fe',
-                500: '#0ea5e9',
-                600: '#0284c7',
-                700: '#0369a1',
+                50: '#fffbeb',  /* Amber 50 */
+                100: '#fef3c7', /* Amber 100 */
+                500: '#d4af37', /* Metallic Gold */
+                600: '#b4941f', /* Darker Gold */
+                700: '#8a7010', /* Deep Gold */
+              },
+              zinc: {
+                850: '#1f2025',
+                900: '#18181b',
+                950: '#09090b',
               }
             }
           }
@@ -46,7 +51,7 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden selection:bg-primary-100">
+  <body class="bg-zinc-950 text-zinc-100 h-screen overflow-hidden selection:bg-primary-500 selection:text-black">
     <div id="root" class="h-full"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

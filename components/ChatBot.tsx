@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Bot, Loader2 } from 'lucide-react';
-import { ChatMessage, Property, Reservation, AppAction } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, X, Bot, Sparkles, MessageSquare } from 'lucide-react';
+import { Property, Reservation } from '../types';
 import { sendChatMessage } from '../services/geminiService';
 
 interface ChatBotProps {
@@ -8,93 +8,89 @@ interface ChatBotProps {
   onClose: () => void;
   properties: Property[];
   reservations: Reservation[];
-  onAction: (action: AppAction) => void;
+  onAction: (action: any) => void;
 }
 
 const ChatBot: React.FC<ChatBotProps> = ({ isOpen, onClose, properties, reservations, onAction }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Hola, soy el asistente virtual de Odihna Balance. ¿En qué puedo ayudarte hoy?', timestamp: Date.now() }
+  const [messages, setMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
+    { role: 'assistant', content: 'Hola, soy tu asistente de Odihna. ¿En qué puedo ayudarte hoy?' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isOpen]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim()) return;
 
-    const userMsg: ChatMessage = { role: 'user', text: input, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMsg]);
+    const userMessage = input;
     setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
 
     try {
-      // Send message and get text + actions back
-      const { text, actions } = await sendChatMessage(userMsg.text, properties, reservations);
-      
-      setMessages(prev => [...prev, { role: 'model', text: text, timestamp: Date.now() }]);
+        const result = await sendChatMessage(userMessage, properties, reservations);
 
-      // Execute Actions if any
-      if (actions && actions.length > 0) {
-        actions.forEach(action => {
-            console.log("Executing Action:", action);
-            onAction(action);
-        });
-      }
+        // Execute actions if any
+        if (result.actions && result.actions.length > 0) {
+            result.actions.forEach(action => {
+                onAction(action);
+            });
+        }
+
+        setMessages(prev => [...prev, { role: 'assistant', content: result.text }]);
     } catch (error) {
-       setMessages(prev => [...prev, { role: 'model', text: "Ocurrió un error procesando tu solicitud.", timestamp: Date.now() }]);
+        console.error("Chat Error:", error);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Lo siento, hubo un error al conectar con la IA.' }]);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
+    <div className="fixed bottom-24 left-4 lg:left-64 z-50 w-80 lg:w-96 bg-zinc-900 rounded-2xl shadow-2xl border border-primary-500/30 flex flex-col overflow-hidden animate-fade-in">
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+      <div className="bg-gradient-to-r from-primary-600 to-amber-600 p-4 flex justify-between items-center text-black">
         <div className="flex items-center gap-2">
-          <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
-            <Bot size={20} />
+          <div className="bg-black/20 p-1.5 rounded-lg">
+            <Bot size={20} className="text-black" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-800">Asistente AI</h3>
-            <p className="text-xs text-emerald-600 font-medium flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> En línea
+            <h3 className="font-bold text-sm">Asistente Odihna</h3>
+            <p className="text-[10px] text-black/70 flex items-center gap-1">
+              <Sparkles size={8} /> Powered by Gemini
             </p>
           </div>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500">
-          <X size={20} />
+        <button onClick={onClose} className="p-1 hover:bg-black/10 rounded-full transition-colors">
+          <X size={18} />
         </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+      <div className="flex-1 h-80 overflow-y-auto p-4 space-y-4 bg-zinc-950">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-3 text-sm leading-relaxed ${
+            <div className={`max-w-[80%] rounded-2xl p-3 text-sm ${
               msg.role === 'user' 
-                ? 'bg-primary-600 text-white rounded-br-none' 
-                : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none shadow-sm'
+                ? 'bg-primary-500 text-black rounded-tr-none font-medium'
+                : 'bg-zinc-800 text-zinc-200 rounded-tl-none border border-zinc-700'
             }`}>
-              {msg.text}
+              {msg.content}
             </div>
           </div>
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-white border border-slate-200 p-3 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-2">
-              <Loader2 size={16} className="animate-spin text-purple-600" />
-              <span className="text-xs text-slate-400">Procesando...</span>
+            <div className="bg-zinc-800 p-3 rounded-2xl rounded-tl-none border border-zinc-700 flex gap-1">
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce delay-75" />
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce delay-150" />
             </div>
           </div>
         )}
@@ -102,22 +98,22 @@ const ChatBot: React.FC<ChatBotProps> = ({ isOpen, onClose, properties, reservat
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-slate-100 bg-white">
-        <div className="flex items-center gap-2 bg-slate-100 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-purple-200 transition-all">
+      <div className="p-3 bg-zinc-900 border-t border-zinc-800">
+        <div className="flex gap-2">
           <input
             type="text"
-            className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1"
-            placeholder="Escribe aquí tu consulta..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Pregunta algo..."
+            className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-200 placeholder-zinc-500"
           />
           <button 
             onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            className="p-2 bg-purple-600 text-white rounded-full hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            disabled={!input.trim() || isLoading}
+            className="p-2 bg-primary-500 text-black rounded-xl hover:bg-primary-400 disabled:opacity-50 transition-colors shadow-lg shadow-primary-900/20"
           >
-            <Send size={16} />
+            <Send size={18} />
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Calendar, DollarSign, User, Globe, ArrowDownUp, TrendingUp, CalendarRange } from 'lucide-react';
-import { Reservation, Property, Platform, ReservationType } from '../types';
+import { X, Save, Calendar, User, DollarSign, Globe, Building2, CalendarRange } from 'lucide-react';
+import { Property, Reservation, Platform, ReservationType } from '../types';
+import { generateId } from '../App';
 
 interface ReservationModalProps {
   isOpen: boolean;
@@ -10,157 +11,99 @@ interface ReservationModalProps {
   reservationToEdit?: Reservation;
 }
 
-const safeId = () => {
-    try {
-        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-            return crypto.randomUUID();
-        }
-    } catch (e) {}
-    return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
-};
-
-// Helper para calcular meses entre dos fechas
-const calculateMonths = (startDate: string, endDate: string): number => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  
-  const months = (end.getFullYear() - start.getFullYear()) * 12 + 
-                 (end.getMonth() - start.getMonth());
-  
-  // Si el día final es mayor o igual al día inicial, suma 1 mes completo
-  if (end.getDate() >= start.getDate()) {
-    return months + 1;
-  }
-  
-  return months;
-};
-
-const ReservationModal: React.FC<ReservationModalProps> = ({ 
-  isOpen, onClose, onSave, properties, reservationToEdit 
-}) => {
+const ReservationModal: React.FC<ReservationModalProps> = ({ isOpen, onClose, onSave, properties, reservationToEdit }) => {
   const [formData, setFormData] = useState<Partial<Reservation>>({
     propertyId: '',
     guestName: '',
-    totalAmount: 0,
-    usdAmount: 0,
-    platform: Platform.Direct,
     checkInDate: '',
     checkOutDate: '',
-    exchangeRate: 4200,
-    enteredAs: 'USD',
+    platform: Platform.Airbnb,
     reservationType: ReservationType.Standard,
+    totalAmount: 0,
+    usdAmount: 0,
+    exchangeRate: 0,
+    enteredAs: 'USD',
     monthlyExpensesAndOwnerPay: 0,
-    monthsCount: 0
+    monthsCount: 1
   });
 
-  const [activeInput, setActiveInput] = useState<'COP' | 'USD'>('USD');
+  const [activeInput, setActiveInput] = useState<'USD' | 'COP'>('USD');
 
+  // Load data for editing
   useEffect(() => {
     if (reservationToEdit) {
       setFormData(reservationToEdit);
-      if (reservationToEdit.enteredAs) {
-        setActiveInput(reservationToEdit.enteredAs);
-      }
+      if (reservationToEdit.enteredAs) setActiveInput(reservationToEdit.enteredAs);
     } else {
+      // Defaults
       setFormData({
         propertyId: properties[0]?.id || '',
         guestName: '',
+        checkInDate: '',
+        checkOutDate: '',
+        platform: Platform.Airbnb,
+        reservationType: ReservationType.Standard,
         totalAmount: 0,
         usdAmount: 0,
-        platform: Platform.Direct,
-        checkInDate: new Date().toISOString().split('T')[0],
-        checkOutDate: new Date().toISOString().split('T')[0],
-        exchangeRate: 4200,
+        exchangeRate: 4200, // Default prompt
         enteredAs: 'USD',
-        reservationType: ReservationType.Standard,
         monthlyExpensesAndOwnerPay: 0,
-        monthsCount: 0
+        monthsCount: 1
       });
-      setActiveInput('USD');
     }
   }, [reservationToEdit, isOpen, properties]);
 
-  // Calcular automáticamente meses cuando cambian las fechas (solo para Monthly)
+  // Auto-calculation Effect for Airbnb
   useEffect(() => {
-    if (formData.reservationType === ReservationType.Monthly && 
-        formData.checkInDate && 
-        formData.checkOutDate) {
-      const months = calculateMonths(formData.checkInDate, formData.checkOutDate);
-      setFormData(prev => ({ ...prev, monthsCount: months }));
+    if (formData.platform === Platform.Airbnb && formData.reservationType === ReservationType.Standard) {
+        const rate = formData.exchangeRate || 0;
+
+        if (activeInput === 'USD') {
+            const usd = formData.usdAmount || 0;
+            const calculatedCop = Math.round(usd * rate);
+            if (calculatedCop !== formData.totalAmount) {
+                setFormData(prev => ({ ...prev, totalAmount: calculatedCop }));
+            }
+        } else {
+            const cop = formData.totalAmount || 0;
+            const calculatedUsd = rate > 0 ? Number((cop / rate).toFixed(2)) : 0;
+            if (calculatedUsd !== formData.usdAmount) {
+                setFormData(prev => ({ ...prev, usdAmount: calculatedUsd }));
+            }
+        }
     }
+  }, [formData.usdAmount, formData.totalAmount, formData.exchangeRate, activeInput, formData.platform]);
+
+  // Auto-calculate months count
+  useEffect(() => {
+      if (formData.reservationType === ReservationType.Monthly && formData.checkInDate && formData.checkOutDate) {
+          const start = new Date(formData.checkInDate);
+          const end = new Date(formData.checkOutDate);
+          const diffTime = Math.abs(end.getTime() - start.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          const months = Math.max(1, Math.round(diffDays / 30));
+          setFormData(prev => ({ ...prev, monthsCount: months }));
+      }
   }, [formData.checkInDate, formData.checkOutDate, formData.reservationType]);
-
-  // Calcular automáticamente conversión USD-COP (solo para Airbnb Standard)
-  useEffect(() => {
-    if (formData.platform !== Platform.Airbnb || 
-        formData.reservationType !== ReservationType.Standard) return;
-    if (!formData.exchangeRate || formData.exchangeRate <= 0) return;
-
-    if (activeInput === 'USD' && formData.usdAmount !== undefined) {
-      const calculatedCOP = formData.usdAmount * formData.exchangeRate;
-      setFormData(prev => ({ ...prev, totalAmount: Math.round(calculatedCOP) }));
-    } else if (activeInput === 'COP' && formData.totalAmount !== undefined) {
-      const calculatedUSD = formData.totalAmount / formData.exchangeRate;
-      setFormData(prev => ({ ...prev, usdAmount: parseFloat(calculatedUSD.toFixed(2)) }));
-    }
-  }, [formData.usdAmount, formData.totalAmount, formData.exchangeRate, activeInput, formData.platform, formData.reservationType]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.propertyId || !formData.guestName) return;
-
-    // Validación para Airbnb Standard
-    if (formData.platform === Platform.Airbnb && 
-        formData.reservationType === ReservationType.Standard) {
-      if (!formData.exchangeRate || formData.exchangeRate <= 0) {
-        alert('Por favor ingresa una tasa de cambio válida para Airbnb');
-        return;
-      }
-      if (!formData.usdAmount || formData.usdAmount <= 0) {
-        alert('Por favor ingresa un monto válido');
-        return;
-      }
-    }
-
-    // Validación para Monthly
-    if (formData.reservationType === ReservationType.Monthly) {
-      if (!formData.totalAmount || formData.totalAmount <= 0) {
-        alert('Por favor ingresa el valor mensual total de la reserva');
-        return;
-      }
-      if (formData.monthlyExpensesAndOwnerPay === undefined || 
-          formData.monthlyExpensesAndOwnerPay < 0) {
-        alert('Por favor ingresa el valor de gastos + pago al dueño');
-        return;
-      }
-    }
-
-    const reservationData: Reservation = {
-      id: reservationToEdit?.id || safeId(),
-      propertyId: formData.propertyId,
-      guestName: formData.guestName,
-      totalAmount: Number(formData.totalAmount),
-      platform: formData.platform as Platform,
+    onSave({
+      id: reservationToEdit?.id || generateId(),
+      propertyId: formData.propertyId || '',
+      guestName: formData.guestName || '',
       checkInDate: formData.checkInDate || '',
       checkOutDate: formData.checkOutDate || '',
-      reservationType: formData.reservationType || ReservationType.Standard
-    };
-
-    // Campos específicos para Airbnb Standard
-    if (formData.platform === Platform.Airbnb && 
-        formData.reservationType === ReservationType.Standard) {
-      reservationData.usdAmount = Number(formData.usdAmount);
-      reservationData.exchangeRate = Number(formData.exchangeRate);
-      reservationData.enteredAs = activeInput;
-    }
-
-    // Campos específicos para Monthly
-    if (formData.reservationType === ReservationType.Monthly) {
-      reservationData.monthlyExpensesAndOwnerPay = Number(formData.monthlyExpensesAndOwnerPay);
-      reservationData.monthsCount = formData.monthsCount;
-    }
-
-    onSave(reservationData);
+      platform: formData.platform || Platform.Direct,
+      reservationType: formData.reservationType || ReservationType.Standard,
+      totalAmount: Number(formData.totalAmount) || 0,
+      usdAmount: formData.platform === Platform.Airbnb ? Number(formData.usdAmount) : undefined,
+      exchangeRate: formData.platform === Platform.Airbnb ? Number(formData.exchangeRate) : undefined,
+      enteredAs: activeInput,
+      paymentId: reservationToEdit?.paymentId, // Preserve payment link
+      monthlyExpensesAndOwnerPay: formData.reservationType === ReservationType.Monthly ? Number(formData.monthlyExpensesAndOwnerPay) : undefined,
+      monthsCount: formData.reservationType === ReservationType.Monthly ? Number(formData.monthsCount) : undefined
+    });
     onClose();
   };
 
@@ -168,153 +111,113 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
   const isAirbnb = formData.platform === Platform.Airbnb;
   const isMonthly = formData.reservationType === ReservationType.Monthly;
-  const myEarnings = isMonthly 
-    ? (formData.totalAmount || 0) - (formData.monthlyExpensesAndOwnerPay || 0)
-    : 0;
+  const myEarnings = (formData.totalAmount || 0) - (formData.monthlyExpensesAndOwnerPay || 0);
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-slate-800">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-zinc-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-zinc-800 animate-fade-in max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="bg-zinc-950 p-6 flex justify-between items-center border-b border-zinc-800 shrink-0">
+          <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+            <Calendar className="text-primary-500" />
             {reservationToEdit ? 'Editar Reserva' : 'Nueva Reserva'}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X size={24} />
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors bg-zinc-900 hover:bg-zinc-800 p-2 rounded-full">
+            <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Propiedad</label>
-            <select
-              required
-              className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
-              value={formData.propertyId}
-              onChange={e => setFormData({ ...formData, propertyId: e.target.value })}
-            >
-              <option value="" disabled>Seleccionar Propiedad</option>
-              {properties.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.commissionRate}%)</option>
-              ))}
-            </select>
-          </div>
+        {/* Scrollable Content */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Huésped</label>
-            <div className="relative">
-              <User className="absolute left-3 top-3 text-slate-400" size={18} />
-              <input
-                type="text"
-                required
-                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
-                value={formData.guestName}
-                onChange={e => setFormData({ ...formData, guestName: e.target.value })}
-              />
+          {/* ========== SELECCIÓN PROPIEDAD Y TIPO ========== */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Propiedad</label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-3 text-zinc-600" size={18} />
+                <select
+                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-200"
+                  value={formData.propertyId}
+                  onChange={e => setFormData({ ...formData, propertyId: e.target.value })}
+                >
+                  {properties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Tipo de Reserva</label>
+              <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, reservationType: ReservationType.Standard })}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${!isMonthly ? 'bg-zinc-800 text-primary-500 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  Estándar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, reservationType: ReservationType.Monthly })}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${isMonthly ? 'bg-purple-900/40 text-purple-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  Mensual
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* ========== SELECTOR DE TIPO DE RESERVA ========== */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Tipo de Reserva</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, reservationType: ReservationType.Standard })}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                  formData.reservationType === ReservationType.Standard
-                    ? 'bg-blue-500 text-white shadow-lg'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
-                }`}
-              >
-                📅 Estándar
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, reservationType: ReservationType.Monthly })}
-                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                  formData.reservationType === ReservationType.Monthly
-                    ? 'bg-purple-500 text-white shadow-lg'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-purple-300'
-                }`}
-              >
-                📆 Mensual
-              </button>
+          {/* ========== DATOS BÁSICOS ========== */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Huésped</label>
+              <div className="relative">
+                <User className="absolute left-3 top-3 text-zinc-600" size={18} />
+                <input
+                  type="text"
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-200"
+                  value={formData.guestName}
+                  onChange={e => setFormData({ ...formData, guestName: e.target.value })}
+                  placeholder="Nombre del cliente"
+                />
+              </div>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Plataforma</label>
-            <div className="relative">
-              <Globe className="absolute left-3 top-3 text-slate-400" size={18} />
-              <select
-                className="w-full pl-10 pr-2 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 appearance-none font-semibold"
-                value={formData.platform}
-                onChange={e => {
-                  const newPlatform = e.target.value as Platform;
-                  setFormData({ 
-                    ...formData, 
-                    platform: newPlatform,
-                    exchangeRate: newPlatform === Platform.Airbnb ? 4200 : undefined,
-                    enteredAs: newPlatform === Platform.Airbnb ? 'USD' : undefined
-                  });
-                }}
-              >
-                {Object.values(Platform).map(p => (
-                  <option key={p} value={p}>{p}</option>
+            <div>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Plataforma</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[Platform.Airbnb, Platform.Booking, Platform.Direct].map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, platform: p })}
+                    className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                      formData.platform === p
+                        ? 'bg-primary-500 text-black border-primary-600'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-600'
+                    }`}
+                  >
+                    {p}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
 
-          {/* ========== SECCIÓN AIRBNB (Solo para Standard) ========== */}
+          {/* ========== SECCIÓN AIRBNB (USD LOGIC) ========== */}
           {isAirbnb && !isMonthly && (
-            <div className="bg-gradient-to-br from-emerald-50 to-blue-50 p-4 rounded-xl border-2 border-emerald-200 space-y-3">
-              <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm mb-2">
-                <TrendingUp size={16} />
-                Configuración Airbnb
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">¿En qué moneda ingresas el monto?</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveInput('USD')}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                      activeInput === 'USD'
-                        ? 'bg-emerald-500 text-white shadow-lg'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
-                    }`}
-                  >
-                    💵 USD (Dólares)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveInput('COP')}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                      activeInput === 'COP'
-                        ? 'bg-blue-500 text-white shadow-lg'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
-                    }`}
-                  >
-                    💰 COP (Pesos)
-                  </button>
+            <div className="bg-emerald-900/10 p-4 rounded-xl border border-emerald-900/30 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                  <Globe size={16} />
+                  Conversión de Divisas
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Tasa de Cambio (COP por cada USD)
-                </label>
-                <div className="relative">
-                  <ArrowDownUp className="absolute left-3 top-3 text-orange-500" size={18} />
+                <div className="flex items-center gap-2 bg-zinc-900/50 px-3 py-1 rounded-lg border border-emerald-900/30">
+                  <span className="text-[10px] text-emerald-500 uppercase font-bold">Tasa Cambio:</span>
                   <input
                     type="number"
-                    required
-                    step="0.01"
-                    min="1"
-                    className="w-full pl-10 pr-4 py-2 bg-white border-2 border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-orange-700"
+                    className="w-20 bg-transparent text-right font-mono text-sm text-emerald-300 focus:outline-none"
                     value={formData.exchangeRate}
                     onChange={e => setFormData({ ...formData, exchangeRate: Number(e.target.value) })}
                     placeholder="ej: 4280.50"
@@ -324,7 +227,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-emerald-700 mb-1">
+                  <label className="block text-xs font-bold text-emerald-500 mb-1">
                     💵 Monto USD
                   </label>
                   <div className="relative">
@@ -334,7 +237,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                       required
                       step="0.01"
                       min="0"
-                      className="w-full pl-8 pr-2 py-2 bg-white border-2 border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-700"
+                      className="w-full pl-8 pr-2 py-2 bg-zinc-900 border border-emerald-900/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-emerald-400 placeholder-emerald-900/50"
                       value={formData.usdAmount}
                       onChange={e => {
                         setActiveInput('USD');
@@ -346,7 +249,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-blue-700 mb-1">
+                  <label className="block text-xs font-bold text-blue-400 mb-1">
                     💰 Monto COP
                   </label>
                   <div className="relative">
@@ -356,7 +259,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                       required
                       step="1"
                       min="0"
-                      className="w-full pl-8 pr-2 py-2 bg-white border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-700"
+                      className="w-full pl-8 pr-2 py-2 bg-zinc-900 border border-blue-900/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-blue-400 placeholder-blue-900/50"
                       value={formData.totalAmount}
                       onChange={e => {
                         setActiveInput('COP');
@@ -368,12 +271,12 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                 </div>
               </div>
 
-              <div className="bg-white/80 backdrop-blur p-2 rounded-lg border border-slate-200">
-                <div className="text-[10px] text-slate-500 text-center">
+              <div className="bg-zinc-900/50 p-2 rounded-lg border border-emerald-900/20">
+                <div className="text-[10px] text-zinc-500 text-center">
                   {formData.enteredAs === 'USD' ? (
-                    <span>✏️ Último editado: <strong className="text-emerald-600">USD</strong> (COP calculado automáticamente)</span>
+                    <span>✏️ Último editado: <strong className="text-emerald-500">USD</strong> (COP calculado automáticamente)</span>
                   ) : (
-                    <span>✏️ Último editado: <strong className="text-blue-600">COP</strong> (USD calculado automáticamente)</span>
+                    <span>✏️ Último editado: <strong className="text-blue-500">COP</strong> (USD calculado automáticamente)</span>
                   )}
                 </div>
               </div>
@@ -382,76 +285,76 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
           {/* ========== SECCIÓN RESERVA MENSUAL ========== */}
           {isMonthly && (
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-4 rounded-xl border-2 border-purple-200 space-y-3">
-              <div className="flex items-center gap-2 text-purple-700 font-bold text-sm mb-2">
+            <div className="bg-purple-900/10 p-4 rounded-xl border border-purple-900/30 space-y-3">
+              <div className="flex items-center gap-2 text-purple-400 font-bold text-sm mb-2">
                 <CalendarRange size={16} />
                 Reserva Mensual
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
                   💰 Valor Mensual Total (COP)
                 </label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-3 text-purple-600" size={18} />
+                  <DollarSign className="absolute left-3 top-3 text-purple-500" size={18} />
                   <input
                     type="number"
                     required
                     step="1"
                     min="0"
-                    className="w-full pl-10 pr-4 py-2 bg-white border-2 border-purple-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-bold text-purple-700"
+                    className="w-full pl-10 pr-4 py-2 bg-zinc-900 border border-purple-900/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-bold text-purple-400 placeholder-purple-900/50"
                     value={formData.totalAmount}
                     onChange={e => setFormData({ ...formData, totalAmount: Number(e.target.value) })}
                     placeholder="1000000"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
+                <p className="text-[10px] text-zinc-500 mt-1">
                   Valor total que cobra la reserva por mes
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
+                <label className="block text-xs font-medium text-zinc-400 mb-1">
                   🧾 Gastos + Pago al Dueño (COP)
                 </label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-3 text-orange-600" size={18} />
+                  <DollarSign className="absolute left-3 top-3 text-orange-500" size={18} />
                   <input
                     type="number"
                     required
                     step="1"
                     min="0"
                     max={formData.totalAmount}
-                    className="w-full pl-10 pr-4 py-2 bg-white border-2 border-orange-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-orange-700"
+                    className="w-full pl-10 pr-4 py-2 bg-zinc-900 border border-orange-900/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 font-bold text-orange-400 placeholder-orange-900/50"
                     value={formData.monthlyExpensesAndOwnerPay}
                     onChange={e => setFormData({ ...formData, monthlyExpensesAndOwnerPay: Number(e.target.value) })}
                     placeholder="800000"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
+                <p className="text-[10px] text-zinc-500 mt-1">
                   Total de gastos más lo que le pagas al dueño
                 </p>
               </div>
 
               {/* Vista Previa de Ganancias */}
-              <div className="bg-white/80 backdrop-blur p-3 rounded-lg border border-purple-300">
-                <div className="text-xs text-slate-600 mb-2 font-bold">📊 Resumen Financiero:</div>
+              <div className="bg-zinc-900/80 p-3 rounded-lg border border-purple-900/30">
+                <div className="text-xs text-zinc-400 mb-2 font-bold">📊 Resumen Financiero:</div>
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Valor Mensual:</span>
-                    <span className="font-bold text-purple-700">
+                    <span className="text-zinc-500">Valor Mensual:</span>
+                    <span className="font-bold text-purple-400">
                       ${formData.totalAmount?.toLocaleString('es-CO') || '0'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Gastos + Pago Dueño:</span>
-                    <span className="font-bold text-orange-600">
+                    <span className="text-zinc-500">Gastos + Pago Dueño:</span>
+                    <span className="font-bold text-orange-400">
                       -${formData.monthlyExpensesAndOwnerPay?.toLocaleString('es-CO') || '0'}
                     </span>
                   </div>
-                  <div className="border-t border-purple-200 pt-1 flex justify-between">
-                    <span className="text-slate-700 font-bold">Tu Ganancia:</span>
-                    <span className={`font-bold ${myEarnings >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <div className="border-t border-zinc-700 pt-1 flex justify-between">
+                    <span className="text-zinc-300 font-bold">Tu Ganancia:</span>
+                    <span className={`font-bold ${myEarnings >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                       ${myEarnings.toLocaleString('es-CO')}
                     </span>
                   </div>
@@ -463,14 +366,14 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
           {/* ========== VALOR EN COP (Solo para NO-Airbnb y NO-Monthly) ========== */}
           {!isAirbnb && !isMonthly && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Total en COP ($)</label>
+              <label className="block text-sm font-medium text-zinc-400 mb-1">Total en COP ($)</label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-3 text-slate-400" size={18} />
+                <DollarSign className="absolute left-3 top-3 text-zinc-600" size={18} />
                 <input
                   type="number"
                   required
                   min="0"
-                  className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full pl-10 pr-4 py-2 bg-zinc-950 border border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-200"
                   value={formData.totalAmount}
                   onChange={e => setFormData({ ...formData, totalAmount: Number(e.target.value) })}
                 />
@@ -481,25 +384,25 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
           {/* ========== FECHAS ========== */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="block text-sm font-medium text-zinc-400 mb-1">
                 {isMonthly ? 'Inicio Arriendo' : 'Entrada'}
               </label>
               <input
                 type="date"
                 required
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-300 color-scheme-dark"
                 value={formData.checkInDate}
                 onChange={e => setFormData({ ...formData, checkInDate: e.target.value })}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="block text-sm font-medium text-zinc-400 mb-1">
                 {isMonthly ? 'Fin Arriendo' : 'Salida'}
               </label>
               <input
                 type="date"
                 required
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-zinc-300 color-scheme-dark"
                 value={formData.checkOutDate}
                 onChange={e => setFormData({ ...formData, checkOutDate: e.target.value })}
               />
@@ -508,9 +411,9 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
           {/* Mostrar cantidad de meses para reservas mensuales */}
           {isMonthly && formData.checkInDate && formData.checkOutDate && (
-            <div className="bg-purple-100 border border-purple-300 rounded-lg p-3">
+            <div className="bg-purple-900/20 border border-purple-900/50 rounded-lg p-3">
               <div className="text-center">
-                <span className="text-sm text-purple-700 font-bold">
+                <span className="text-sm text-purple-400 font-bold">
                   📆 Duración: {formData.monthsCount} {formData.monthsCount === 1 ? 'mes' : 'meses'}
                 </span>
               </div>
@@ -519,7 +422,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
           <button
             type="submit"
-            className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors flex items-center justify-center gap-2 mt-6"
+            className="w-full bg-primary-500 text-black py-3 rounded-xl font-bold hover:bg-primary-400 transition-colors flex items-center justify-center gap-2 mt-6 shadow-lg shadow-primary-500/20"
           >
             <Save size={20} />
             Guardar Reserva
